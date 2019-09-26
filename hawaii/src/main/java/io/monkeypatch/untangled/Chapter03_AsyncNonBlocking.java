@@ -229,7 +229,7 @@ class AsyncNonBlockingCoordinatorService {
         println("requestConnection(String token)");
 
         asyncNonBlockingRequest(boundedRequestsExecutor,
-            "https://search.yahoo.com/search?q=" + (token == null ? "nothing" : token),
+            "http://localhost:7000/token?value=" + (token == null ? "nothing" : token),
             String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
             new RequestHandler() {
                 @Override
@@ -283,8 +283,8 @@ class AsyncNonBlockingCoordinatorService {
         println("heartbeat(String token)");
 
         asyncNonBlockingRequest(boundedRequestsExecutor,
-            "https://search.yahoo.com/search?q=" + token,
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new RequestHandler() {
                 @Override
                 public boolean isCancelled() {
@@ -335,8 +335,8 @@ class AsyncNonBlockingCoordinatorService {
 class AsyncNonBlockingGatewayService {
     void downloadThingy(RequestHandler handler, ExecutorService handlerExecutor) {
         asyncNonBlockingRequest(boundedRequestsExecutor,
-            "http://www.ovh.net/files/10Mio.dat",
-            String.format(HEADERS_TEMPLATE, "GET", "files/10Mio.dat", "application/octet-stream", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "download", "application/octet-stream", String.valueOf(0)),
             new RequestHandler() {
                 @Override
                 public boolean isCancelled() {

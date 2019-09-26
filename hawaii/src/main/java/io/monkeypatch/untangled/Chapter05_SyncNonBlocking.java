@@ -149,8 +149,8 @@ class FiberCoordinatorService {
         println("requestConnection(String token)");
 
         ignoreResponse(() -> fakeFiberRequest(
-            "https://search.yahoo.com/search?q=" + (token == null ? "nothing" : token),
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0))
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0))
             , 1000));
 
         int attempt = token == null ? 0 : Integer.parseInt(token);
@@ -163,8 +163,8 @@ class FiberCoordinatorService {
         println("heartbeat(String token)");
 
         ignoreResponse(() -> fakeFiberRequest(
-            "https://search.yahoo.com/search?q=" + token,
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0))
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0))
             , 1000));
 
         return new Connection.Available("Ahoy!");
@@ -174,8 +174,8 @@ class FiberCoordinatorService {
 class FiberGatewayService {
     InputStream downloadThingy() throws IOException {
         return fakeFiberRequest(
-            "http://www.ovh.net/",
-            String.format(HEADERS_TEMPLATE, "GET", "files/10Mio.dat", "application/octet-stream", String.valueOf(0))
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "download", "application/octet-stream", String.valueOf(0))
             , 20000);
     }
 }

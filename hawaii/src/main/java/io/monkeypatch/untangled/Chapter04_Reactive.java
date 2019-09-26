@@ -107,7 +107,7 @@ class ReactiveCoordinatorService {
     Mono<Connection> requestConnection(String token) {
         return Mono.just("requestConnection(String token)")
             .doOnNext(Log::println)
-            .flatMapMany(o -> reactiveRequest("https://search.yahoo.com/search?q=" + (token == null ? "nothing" : token)))
+            .flatMapMany(o -> reactiveRequest("http://localhost:7000/token?value=" + (token == null ? "nothing" : token)))
             .publishOn(Schedulers.parallel())
             .then(Mono.fromSupplier(() -> {
                 int attempt = token == null ? 0 : Integer.parseInt(token);
@@ -121,7 +121,7 @@ class ReactiveCoordinatorService {
     Mono<Connection> heartbeat(String token) {
         return Mono.just("heartbeat(String token)")
             .doOnNext(Log::println)
-            .flatMapMany(o -> reactiveRequest("https://search.yahoo.com/search?q=" + token))
+            .flatMapMany(o -> reactiveRequest("http://localhost:7000/heartbeat?token=" + token))
             .publishOn(Schedulers.parallel())
             .then(Mono.just(new Connection.Available("Ahoy!")));
     }
@@ -129,8 +129,7 @@ class ReactiveCoordinatorService {
 
 class ReactiveGatewayService {
     Flux<byte[]> downloadThingy(String token) {
-//        return reactiveRequest("http://www.ovh.net/files/10Mio.dat")
-        return reactiveRequest("https://download.microsoft.com/download/8/b/4/8b4addd8-e957-4dea-bdb8-c4e00af5b94b/NDP1.1sp1-KB867460-X86.exe")
+        return reactiveRequest("http://localhost:7000/download")
             .publishOn(Schedulers.parallel())
             ;
     }

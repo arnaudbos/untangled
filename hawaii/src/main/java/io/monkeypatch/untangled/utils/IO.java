@@ -12,23 +12,26 @@ import reactor.netty.resources.ConnectionProvider;
 import reactor.netty.tcp.SslProvider;
 import reactor.util.Loggers;
 
-import java.io.EOFException;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.OutputStream;
+import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
 import java.net.SocketAddress;
 import java.net.URL;
 import java.nio.ByteBuffer;
+import java.nio.CharBuffer;
 import java.nio.channels.AsynchronousChannelGroup;
 import java.nio.channels.AsynchronousSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.nio.charset.Charset;
+import java.nio.charset.CharsetDecoder;
+import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static io.monkeypatch.untangled.utils.Log.err;
 import static io.monkeypatch.untangled.utils.Log.println;
@@ -52,11 +55,16 @@ public class IO {
         elasticServiceExecutor = Executors.newCachedThreadPool(new PrefixedThreadFactory("service"));
     }
 
-    public static InputStream blockingRequest(String r) throws IOException {
-        URL url = new URL(r);
-        HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-        conn.setRequestMethod("GET");
-        return conn.getInputStream();
+    public static InputStream blockingRequest(String url, String headers) throws IOException {
+        URL uri = new URL(url);
+        SocketAddress serverAddress = new InetSocketAddress(uri.getHost(), uri.getPort());
+        SocketChannel channel = SocketChannel.open(serverAddress);
+        ByteBuffer buffer = ByteBuffer.wrap((headers + "Host: " + uri.getHost() + "\r\n\r\n").getBytes());
+        do {
+            channel.write(buffer);
+        } while(buffer.hasRemaining());
+
+        return channel.socket().getInputStream();
     }
     //</editor-fold>
 
@@ -78,14 +86,12 @@ public class IO {
         boundedPulseExecutor = Executors.newScheduledThreadPool(10, new PrefixedThreadFactory("pulse"));
     }
 
-    public static void asyncRequest(ExecutorService executor, String r, CompletionHandler<InputStream> handler) {
+    public static void asyncRequest(ExecutorService executor, String url, String headers, CompletionHandler<InputStream> handler) {
         executor.submit(() -> {
             try {
-                URL url = new URL(r);
-                HttpURLConnection conn = (HttpURLConnection) url.openConnection();
-                conn.setRequestMethod("GET");
+                InputStream is = blockingRequest(url, headers);
                 if (handler!=null)
-                    handler.completed(conn.getInputStream());
+                    handler.completed(is);
             } catch (Exception e) {
                 if (handler!=null)
                     handler.failed(e);
@@ -346,6 +352,43 @@ public class IO {
     //</editor-fold>
 
     //<editor-fold desc="InputStream utils">
+    private static final Pattern available = Pattern.compile("(?i)^Available[(]token=(?<token>[0-9]+)[)]");
+    private static final Pattern unavailable = Pattern.compile("(?i)^Unavailable[(]eta=(?<eta>[0-9]+),wait=(?<wait>[0-9]+),token=(?<token>[0-9]+)[)]");
+
+    public static Connection parseToken(CheckedSupplier<InputStream> response) {
+        StringBuilder builder = new StringBuilder();
+        try (Reader reader = new BufferedReader(new InputStreamReader
+            (response.get(), Charset.forName(StandardCharsets.UTF_8.name())))) {
+            int c = 0;
+            while ((c = reader.read()) != -1) {
+                builder.append((char) c);
+            }
+            String resp = builder.toString().substring(35);
+
+            Matcher m = available.matcher(resp);
+            if (m.matches()) {
+                return new Connection.Available(m.group("token"));
+            }
+            m = unavailable.matcher(resp);
+            if (m.matches()) {
+                return new Connection.Unavailable(
+                    Long.parseLong(m.group("eta")),
+                    Long.parseLong(m.group("wait")),
+                    m.group("token")
+                );
+            }
+
+            throw new IllegalStateException("Wrong token");
+        } catch (IOException e) {
+            // ignore: I just want latency
+            e.printStackTrace();
+
+            throw new IllegalStateException("No token");
+        } catch (Exception e) {
+            throw new IllegalStateException("No token");
+        }
+    }
+
     public static void ignoreContent(InputStream content) throws IOException {
         byte[] buffer = new byte[1024];
         int total = 0;
@@ -357,8 +400,8 @@ public class IO {
         }
     }
 
-    public static void ignoreResponse(CheckedSupplier<InputStream> request) {
-        try (InputStream is = request.get()) {
+    public static void ignoreResponse(CheckedSupplier<InputStream> response) {
+        try (InputStream is = response.get()) {
             ignoreContent(is);
         } catch (IOException e) {
             // ignore: I just want latency

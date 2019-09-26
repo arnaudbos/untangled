@@ -211,98 +211,96 @@ class AsyncCoordinatorService {
     void requestConnection(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("requestConnection(String token)");
 
-        asyncRequest(elasticServiceExecutor, "https://search.yahoo.com/search?q=" + (token == null ? "nothing" : token), new CompletionHandler<>() {
-            @Override
-            public void completed(InputStream is) {
-                Runnable r = () -> {
-                    try (is) {
-                        ignoreContent(is);
-                    } catch (IOException e) {
-                        // ignore: I just want latency
-                    }
-
-                    int attempt = token == null ? 0 : Integer.parseInt(token);
-                    if (handler != null) handler.completed(attempt > 4
-                        ? new Connection.Available("Ahoy!")
-                        : new Connection.Unavailable(20_000L, random.nextInt(2_000), String.valueOf(attempt + 1)));
-                };
-                if (handlerExecutor!=null) {
-                    handlerExecutor.submit(r);
-                } else {
-                    r.run();
-                }
-            }
-
-            @Override
-            public void failed(Throwable t) {
-                if (handler != null)
+        asyncRequest(
+            elasticServiceExecutor,
+            "http://localhost:7000/token?value=" + (token == null ? "nothing" : token),
+            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            new CompletionHandler<>() {
+                @Override
+                public void completed(InputStream is) {
+                    Runnable r = () -> {
+                        if (handler != null)
+                            handler.completed(parseToken(() -> is));
+                    };
                     if (handlerExecutor!=null) {
-                        handlerExecutor.submit(() -> handler.failed(t));
+                        handlerExecutor.submit(r);
                     } else {
-                        handler.failed(t);
+                        r.run();
                     }
-            }
-        });
+                }
+
+                @Override
+                public void failed(Throwable t) {
+                    if (handler != null)
+                        if (handlerExecutor!=null) {
+                            handlerExecutor.submit(() -> handler.failed(t));
+                        } else {
+                            handler.failed(t);
+                        }
+                }
+            });
     }
 
     void heartbeat(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("heartbeat(String token)");
 
-        asyncRequest(elasticServiceExecutor, "https://search.yahoo.com/search?q=" + token, new CompletionHandler<>() {
-            @Override
-            public void completed(InputStream is) {
-                Runnable r = () -> {
-                    try (is) {
-                        ignoreContent(is);
-                    } catch (IOException e) {
-                        // ignore: I just want latency
-                    }
-
-                    if (handler != null)
-                        handler.completed(new Connection.Available("Ahoy!"));
-                };
-                if (handlerExecutor!=null) {
-                    handlerExecutor.submit(r);
-                } else {
-                    r.run();
-                }
-            }
-
-            @Override
-            public void failed(Throwable t) {
-                if (handler != null)
+        asyncRequest(
+            elasticServiceExecutor,
+            "http://localhost:7000/heartbeat?token=" + token,
+            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            new CompletionHandler<>() {
+                @Override
+                public void completed(InputStream is) {
+                    Runnable r = () -> {
+                        if (handler != null)
+                            handler.completed(parseToken(() -> is));
+                    };
                     if (handlerExecutor!=null) {
-                        handlerExecutor.submit(() -> handler.failed(t));
+                        handlerExecutor.submit(r);
                     } else {
-                        handler.failed(t);
+                        r.run();
                     }
-            }
-        });
+                }
+
+                @Override
+                public void failed(Throwable t) {
+                    if (handler != null)
+                        if (handlerExecutor!=null) {
+                            handlerExecutor.submit(() -> handler.failed(t));
+                        } else {
+                            handler.failed(t);
+                        }
+                }
+            });
     }
 }
 
 class AsyncGatewayService {
     void downloadThingy(CompletionHandler<InputStream> handler, ExecutorService handlerExecutor) {
-        asyncRequest(elasticRequestsExecutor, "http://www.ovh.net/files/10Mio.dat", new CompletionHandler<>() {
-            @Override
-            public void completed(InputStream result) {
-                if (handler != null)
-                    if (handlerExecutor!=null) {
-                        handlerExecutor.submit(() -> handler.completed(result));
-                    } else {
-                        handler.completed(result);
-                    }
-            }
+        asyncRequest(
+            elasticRequestsExecutor,
+            "http://localhost:7000/download",
+            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            new CompletionHandler<>() {
+                @Override
+                public void completed(InputStream result) {
+                    if (handler != null)
+                        if (handlerExecutor!=null) {
+                            handlerExecutor.submit(() -> handler.completed(result));
+                        } else {
+                            handler.completed(result);
+                        }
+                }
 
-            @Override
-            public void failed(Throwable t) {
-                if (handler != null)
-                    if (handlerExecutor!=null) {
-                        handlerExecutor.submit(() -> handler.failed(t));
-                    } else {
-                        handler.failed(t);
-                    }
-            }
-        });
+                @Override
+                public void failed(Throwable t) {
+                    if (handler != null)
+                        if (handlerExecutor!=null) {
+                            handlerExecutor.submit(() -> handler.failed(t));
+                        } else {
+                            handler.failed(t);
+                        }
+                }
+            });
     }
 }

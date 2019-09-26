@@ -14,7 +14,7 @@ import static io.monkeypatch.untangled.utils.Log.println;
 
 public class Chapter01_SyncBlocking {
 
-    private static final int MAX_CLIENTS = 50;
+    private static final int MAX_CLIENTS = 200;
 
     private final CoordinatorService coordinator = new CoordinatorService();
     private final GatewayService gateway = new GatewayService();
@@ -129,30 +129,30 @@ public class Chapter01_SyncBlocking {
 }
 
 class CoordinatorService {
-    private static final Random random = new Random();
-
     Connection requestConnection(String token) {
         println("requestConnection(String token)");
 
-        ignoreResponse(() -> blockingRequest("https://search.yahoo.com/search?q=" + (token == null ? "nothing" : token)));
-
-        int attempt = token == null ? 0 : Integer.parseInt(token);
-        return attempt > 4
-            ? new Connection.Available("Ahoy!")
-            : new Connection.Unavailable(20_000L, random.nextInt(2_000), String.valueOf(attempt + 1));
+        return parseToken(() -> blockingRequest(
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0))
+        ));
     }
 
     Connection heartbeat(String token) {
         println("heartbeat(String token)");
 
-        ignoreResponse(() -> blockingRequest("https://search.yahoo.com/search?q=" + token));
-
-        return new Connection.Available("Ahoy!");
+        return parseToken(() -> blockingRequest(
+            "https://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0))
+        ));
     }
 }
 
 class GatewayService {
     InputStream downloadThingy() throws IOException {
-        return blockingRequest("http://www.ovh.net/files/10Mio.dat");
+        return blockingRequest(
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0))
+        );
     }
 }
