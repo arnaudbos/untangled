@@ -10,6 +10,7 @@ import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
 import reactor.netty.tcp.SslProvider;
+import reactor.util.Logger;
 import reactor.util.Loggers;
 
 import java.io.*;
@@ -26,6 +27,7 @@ import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
+import java.util.Scanner;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
@@ -56,6 +58,7 @@ public class IO {
     }
 
     public static InputStream blockingRequest(String url, String headers) throws IOException {
+        println("Starting request to " + url);
         URL uri = new URL(url);
         SocketAddress serverAddress = new InetSocketAddress(uri.getHost(), uri.getPort());
         SocketChannel channel = SocketChannel.open(serverAddress);
@@ -104,12 +107,10 @@ public class IO {
     private static AsynchronousChannelGroup group;
 
     public static void init_Chapter03_AsyncNonBlocking() {
-        boundedRequestsExecutor = Executors.newScheduledThreadPool(10, new PrefixedThreadFactory("requests"));
         boundedServiceExecutor = Executors.newScheduledThreadPool(10, new PrefixedThreadFactory("service"));
-        boundedPulseExecutor = Executors.newScheduledThreadPool(10, new PrefixedThreadFactory("pulse"));
 
         try {
-            group = AsynchronousChannelGroup.withThreadPool(boundedRequestsExecutor);
+            group = AsynchronousChannelGroup.withThreadPool(boundedServiceExecutor);
         } catch (IOException e) {
             e.printStackTrace();
         }
@@ -120,7 +121,7 @@ public class IO {
             try {
                 println("Starting request to " + url);
                 URL uri = new URL(url);
-                SocketAddress serverAddress = new InetSocketAddress(uri.getHost(), 80);
+                SocketAddress serverAddress = new InetSocketAddress(uri.getHost(), uri.getPort());
                 AsynchronousSocketChannel channel = AsynchronousSocketChannel.open(group);
 
                 channel.connect(serverAddress, null, new java.nio.channels.CompletionHandler<Void, Void>() {
@@ -209,6 +210,7 @@ public class IO {
 
     //<editor-fold desc="reactive (asynchronous non thread-blocking request)">
     private static HttpClient httpClient;
+    private static Logger reactiveLogger = Loggers.getLogger("http-client");
 
     public static void init_Chapter04_Reactive() {
         httpClient = HttpClient.create(ConnectionProvider.newConnection())
@@ -232,31 +234,19 @@ public class IO {
             println("Starting request to " + url);
             return new URL(url);
         }).flatMapMany(uri -> httpClient
-            // I'm lazy and reactor-netty is right there on the shelf...
-            .baseUrl(uri.getProtocol()+"://"+uri.getHost())
-            .port(uri.getPort() == -1 ? 80 : uri.getPort())
-            .protocol(HttpProtocol.HTTP11)
+            // I'm lazy and reactor-netty's client is right there on the shelf...
             .get()
-            .uri(uri.getFile())
+            .uri(uri.toString())
             .responseContent()
             .asByteArray()
-            .log(Loggers.getLogger("http-client"))
+//                .doOnError(t -> err("req error " + t.getMessage()))
+//                .doOnCancel(() -> err("req cancelled"))
+//            .log(reactiveLogger)
         );
     }
     //</editor-fold>
 
     //<editor-fold desc="synchronous fiber-blocking (non thread-blocking) request">
-    public static InputStream fiberRequest(String url, String headers) throws IOException {
-        URL uri = new URL(url);
-        SocketAddress serverAddress = new InetSocketAddress(uri.getHost(), 80);
-        SocketChannel channel = SocketChannel.open(serverAddress);
-        ByteBuffer buffer = ByteBuffer.wrap((headers + "Host: " + uri.getHost() + "\r\n\r\n").getBytes());
-        do {
-            channel.write(buffer);
-        } while(buffer.hasRemaining());
-
-        return channel.socket().getInputStream();
-    }
     public static InputStream fakeFiberRequest(String url, String headers, long delay) throws IOException {
         try {
             Thread.sleep(3_000L);
@@ -356,37 +346,54 @@ public class IO {
     private static final Pattern unavailable = Pattern.compile("(?i)^Unavailable[(]eta=(?<eta>[0-9]+),wait=(?<wait>[0-9]+),token=(?<token>[0-9]+)[)]");
 
     public static Connection parseToken(CheckedSupplier<InputStream> response) {
-        StringBuilder builder = new StringBuilder();
-        try (Reader reader = new BufferedReader(new InputStreamReader
-            (response.get(), Charset.forName(StandardCharsets.UTF_8.name())))) {
-            int c = 0;
-            while ((c = reader.read()) != -1) {
-                builder.append((char) c);
+//        StringBuilder builder = new StringBuilder();
+        try (InputStream is = response.get()) {//;
+            ByteArrayOutputStream result = new ByteArrayOutputStream();
+            byte[] buffer = new byte[1024];
+            int length;
+            while ((length = is.read(buffer)) != -1) {
+                result.write(buffer, 0, length);
             }
-            String resp = builder.toString().substring(35);
-
-            Matcher m = available.matcher(resp);
-            if (m.matches()) {
-                return new Connection.Available(m.group("token"));
-            }
-            m = unavailable.matcher(resp);
-            if (m.matches()) {
-                return new Connection.Unavailable(
-                    Long.parseLong(m.group("eta")),
-                    Long.parseLong(m.group("wait")),
-                    m.group("token")
-                );
-            }
-
-            throw new IllegalStateException("Wrong token");
+            return parseConnection(result.toString(StandardCharsets.UTF_8.name()).substring(34));
         } catch (IOException e) {
-            // ignore: I just want latency
             e.printStackTrace();
-
             throw new IllegalStateException("No token");
+//        }
+//        try (Reader reader = new BufferedReader(new InputStreamReader
+//            (response.get(), Charset.forName(StandardCharsets.UTF_8.name())))) {
+//            int c = 0;
+//            while ((c = reader.read()) != -1) {
+//                builder.append((char) c);
+//            }
+//            return parseConnection(builder.toString().substring(34));
+//        } catch (IOException e) {
+//            // ignore: I just want latency
+//            e.printStackTrace();
+//
+//            throw new IllegalStateException("No token");
         } catch (Exception e) {
+            e.printStackTrace();
             throw new IllegalStateException("No token");
         }
+    }
+
+    public static Connection parseConnection(String resp) {
+        Matcher m = available.matcher(resp);
+        if (m.matches()) {
+//            println("token available");
+            return new Connection.Available(m.group("token"));
+        }
+        m = unavailable.matcher(resp);
+        if (m.matches()) {
+//            println("token unavailable");
+            return new Connection.Unavailable(
+                Long.parseLong(m.group("eta")),
+                Long.parseLong(m.group("wait")),
+                m.group("token")
+            );
+        }
+
+        throw new IllegalStateException("Wrong token");
     }
 
     public static void ignoreContent(InputStream content) throws IOException {
@@ -395,7 +402,7 @@ public class IO {
         while(true) {
             int read = content.read(buffer);
             // drop it
-            println("read " + read + " bytes.");
+//            println("read " + read + " bytes.");
             if (read==-1 || (total+=read)>MAX_SIZE) break;
         }
     }

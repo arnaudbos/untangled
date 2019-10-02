@@ -17,8 +17,8 @@ public class Chapter06_Structured {
 
     private static final int MAX_CLIENTS = 50;
 
-    private final FiberCoordinatorService coordinator = new FiberCoordinatorService();
-    private final FiberGatewayService gateway = new FiberGatewayService();
+    private final SyncCoordinatorService coordinator = new SyncCoordinatorService();
+    private final SyncGatewayService gateway = new SyncGatewayService();
 
     //<editor-fold desc="Blocking token calls: easy for loop">
     private Connection.Available getConnection() throws EtaExceededException, InterruptedException {
@@ -102,7 +102,7 @@ private Connection.Available getConnection(long eta, long wait, String token) th
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws Exception {
-        Thread.sleep(5_000L);
+        Thread.sleep(15_000L);
 
         Fiber[] fibers = new Fiber[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {

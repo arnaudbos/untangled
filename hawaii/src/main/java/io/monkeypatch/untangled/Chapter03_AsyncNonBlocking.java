@@ -11,7 +11,7 @@ import static io.monkeypatch.untangled.utils.Log.println;
 
 public class Chapter03_AsyncNonBlocking {
 
-    private static final int MAX_CLIENTS = 50;
+    private static final int MAX_CLIENTS = 200;
 
     // Could have use a single executor (or a singleThreadExecutor for that matter),
     // but wanted to mimic code from AsyncBlocking class.
@@ -81,13 +81,13 @@ public class Chapter03_AsyncNonBlocking {
 //                        println(i + " :: Thingy received " + read);
                         if (!pulsing) {
                             Runnable pulse = new PulseRunnable(i, downloadFut, conn);
-                            boundedPulseExecutor.schedule(pulse, 2_000L, TimeUnit.MILLISECONDS);
+                            boundedServiceExecutor.schedule(pulse, 2_000L, TimeUnit.MILLISECONDS);
                             pulsing = true;
                         }
 
                         // drop it
 //                        println(i + " :: Read " + read + " :: Total " + total + " :: MAX_SIZE " + MAX_SIZE + " :: " + new String(data));
-                        println("read " + read + " bytes.");
+//                        println("read " + read + " bytes.");
                         if ((total += read)>=MAX_SIZE) cancelled = true;
                     }
 
@@ -162,7 +162,7 @@ public class Chapter03_AsyncNonBlocking {
                         @Override
                         public void completed(Connection result) {
                             if (!download.isDone()) {
-                                boundedPulseExecutor.schedule(PulseRunnable.this, 2_000L, TimeUnit.MILLISECONDS);
+                                boundedServiceExecutor.schedule(PulseRunnable.this, 2_000L, TimeUnit.MILLISECONDS);
                             }
                         }
 
@@ -171,7 +171,7 @@ public class Chapter03_AsyncNonBlocking {
                             // Nevermind
                         }
                     },
-                    boundedPulseExecutor
+                    boundedServiceExecutor
                 );
             } else {
                 println(i + " :: Pulse stopped.");
@@ -182,7 +182,7 @@ public class Chapter03_AsyncNonBlocking {
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws InterruptedException, ExecutionException {
-        Thread.sleep(5_000L);
+        Thread.sleep(15_000L);
 
         CompletableFuture<Void>[] futures = new CompletableFuture[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -205,10 +205,8 @@ public class Chapter03_AsyncNonBlocking {
             futures[i].get();
         }
 
-        boundedRequestsExecutor.shutdown();
         boundedServiceExecutor.shutdown();
-        boundedPulseExecutor.shutdown();
-        while (!boundedPulseExecutor.isTerminated() || !boundedServiceExecutor.isTerminated() || !boundedPulseExecutor.isTerminated()) {
+        while (!boundedServiceExecutor.isTerminated()) {
             Thread.sleep(2_000L);
         }
     }
@@ -228,9 +226,9 @@ class AsyncNonBlockingCoordinatorService {
     void requestConnection(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("requestConnection(String token)");
 
-        asyncNonBlockingRequest(boundedRequestsExecutor,
-            "http://localhost:7000/token?value=" + (token == null ? "nothing" : token),
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+        asyncNonBlockingRequest(boundedServiceExecutor,
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new RequestHandler() {
                 @Override
                 public boolean isCancelled() {
@@ -282,7 +280,7 @@ class AsyncNonBlockingCoordinatorService {
     void heartbeat(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("heartbeat(String token)");
 
-        asyncNonBlockingRequest(boundedRequestsExecutor,
+        asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
             String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new RequestHandler() {
@@ -334,7 +332,7 @@ class AsyncNonBlockingCoordinatorService {
 
 class AsyncNonBlockingGatewayService {
     void downloadThingy(RequestHandler handler, ExecutorService handlerExecutor) {
-        asyncNonBlockingRequest(boundedRequestsExecutor,
+        asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
             String.format(HEADERS_TEMPLATE, "GET", "download", "application/octet-stream", String.valueOf(0)),
             new RequestHandler() {

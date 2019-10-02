@@ -6,6 +6,6 @@ public class Log {
     }
 
     public static void err(String msg){
-        System.out.println("ERRO [" + Thread.currentThread().getName() + "] " + msg);
+        System.out.println("ERRRO [" + Thread.currentThread().getName() + "] " + msg);
     }
 }

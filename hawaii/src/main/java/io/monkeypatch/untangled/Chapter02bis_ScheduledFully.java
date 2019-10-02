@@ -17,7 +17,7 @@ import static io.monkeypatch.untangled.utils.Log.println;
 
 public class Chapter02bis_ScheduledFully {
 
-    private static final int MAX_CLIENTS = 50;
+    private static final int MAX_CLIENTS = 200;
 
     private final FullyScheduledAsyncCoordinatorService coordinator = new FullyScheduledAsyncCoordinatorService();
     private final FullyScheduledAsyncGatewayService gateway = new FullyScheduledAsyncGatewayService();
@@ -95,10 +95,6 @@ public class Chapter02bis_ScheduledFully {
 
                             if (handler!=null)
                                 handler.completed(null);
-                        } catch (FileNotFoundException e) {
-                            err("Couldn't write to temp file.");
-                            if (handler!=null)
-                                handler.failed(e);
                         } catch (IOException e) {
                             err("Download failed.");
                             if (handler!=null)
@@ -172,7 +168,7 @@ public class Chapter02bis_ScheduledFully {
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws InterruptedException, ExecutionException {
-        Thread.sleep(5_000L);
+        Thread.sleep(15_000L);
 
         CompletableFuture<Void>[] futures = new CompletableFuture[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -221,8 +217,8 @@ class FullyScheduledAsyncCoordinatorService {
 
         asyncRequest(
             boundedServiceExecutor,
-            "http://localhost:7000/token?value=" + (token == null ? "nothing" : token),
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
                 public void completed(InputStream is) {
@@ -254,8 +250,8 @@ class FullyScheduledAsyncCoordinatorService {
 
         asyncRequest(
             boundedServiceExecutor,
-            "http://localhost:7000/heartbeat?token=" + token,
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
                 public void completed(InputStream is) {
@@ -287,8 +283,8 @@ class FullyScheduledAsyncGatewayService {
     void downloadThingy(CompletionHandler<InputStream> handler, ExecutorService handlerExecutor) {
         asyncRequest(
             boundedRequestsExecutor,
-            "http://localhost:7000/download",
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
                 public void completed(InputStream result) {

@@ -14,10 +14,10 @@ import static io.monkeypatch.untangled.utils.Log.println;
 
 public class Chapter05_SyncNonBlocking {
 
-    private static final int MAX_CLIENTS = 50;
+    private static final int MAX_CLIENTS = 200;
 
-    private final FiberCoordinatorService coordinator = new FiberCoordinatorService();
-    private final FiberGatewayService gateway = new FiberGatewayService();
+    private final SyncCoordinatorService coordinator = new SyncCoordinatorService();
+    private final SyncGatewayService gateway = new SyncGatewayService();
 
     //<editor-fold desc="Blocking token calls: easy for loop">
     private Connection.Available getConnection() throws EtaExceededException, InterruptedException {
@@ -112,7 +112,7 @@ public class Chapter05_SyncNonBlocking {
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws InterruptedException {
-        Thread.sleep(5_000L);
+        Thread.sleep(15_000L);
 
         Fiber[] fibers = new Fiber[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -139,43 +139,4 @@ public class Chapter05_SyncNonBlocking {
         println("Done.");
     }
     //</editor-fold>
-}
-
-
-class FiberCoordinatorService {
-    private static final Random random = new Random();
-
-    Connection requestConnection(String token) {
-        println("requestConnection(String token)");
-
-        ignoreResponse(() -> fakeFiberRequest(
-            "http://localhost:7000",
-            String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0))
-            , 1000));
-
-        int attempt = token == null ? 0 : Integer.parseInt(token);
-        return attempt > 4
-            ? new Connection.Available("Ahoy!")
-            : new Connection.Unavailable(20_000L, random.nextInt(2_000), String.valueOf(attempt + 1));
-    }
-
-    Connection heartbeat(String token) {
-        println("heartbeat(String token)");
-
-        ignoreResponse(() -> fakeFiberRequest(
-            "http://localhost:7000",
-            String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0))
-            , 1000));
-
-        return new Connection.Available("Ahoy!");
-    }
-}
-
-class FiberGatewayService {
-    InputStream downloadThingy() throws IOException {
-        return fakeFiberRequest(
-            "http://localhost:7000",
-            String.format(HEADERS_TEMPLATE, "GET", "download", "application/octet-stream", String.valueOf(0))
-            , 20000);
-    }
 }

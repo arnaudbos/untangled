@@ -9,17 +9,17 @@ public class Experiment02_Generator {
         System.out.println("main");
 
         //<editor-fold desc="state machine iterator">
-        Iterator<String> iter = new StateMachineIterator();
-        while(iter.hasNext()) {
-            System.out.println(iter.next());
+        Iterator<String> fsmIter = new StateMachineIterator();
+        while(fsmIter.hasNext()) {
+            System.out.println(fsmIter.next());
         }
         //</editor-fold>
 
         //<editor-fold desc="continuation based iterator">
-        iter = new ContinuationIterator();
-        while(iter.hasNext()) {
-            System.out.println(iter.next());
-        }
+//        Iterator<String> iter = new ContinuationIterator();
+//        while(iter.hasNext()) {
+//            System.out.println(iter.next());
+//        }
         //</editor-fold>
     }
 }

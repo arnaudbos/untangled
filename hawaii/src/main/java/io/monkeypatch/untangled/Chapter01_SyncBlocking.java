@@ -6,7 +6,6 @@ import io.monkeypatch.untangled.utils.IO;
 
 import java.io.IOException;
 import java.io.InputStream;
-import java.util.Random;
 
 import static io.monkeypatch.untangled.utils.IO.*;
 import static io.monkeypatch.untangled.utils.Log.err;
@@ -16,8 +15,8 @@ public class Chapter01_SyncBlocking {
 
     private static final int MAX_CLIENTS = 200;
 
-    private final CoordinatorService coordinator = new CoordinatorService();
-    private final GatewayService gateway = new GatewayService();
+    private final SyncCoordinatorService coordinator = new SyncCoordinatorService();
+    private final SyncGatewayService gateway = new SyncGatewayService();
 
     //<editor-fold desc="Blocking token calls: easy for loop">
     private Connection.Available getConnection() throws EtaExceededException, InterruptedException {
@@ -100,7 +99,7 @@ public class Chapter01_SyncBlocking {
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws InterruptedException {
-        Thread.sleep(5_000L);
+        Thread.sleep(15_000L);
 
         for(int i=0; i<MAX_CLIENTS; i++) {
             elasticServiceExecutor.submit(() -> {
@@ -128,7 +127,7 @@ public class Chapter01_SyncBlocking {
     //</editor-fold>
 }
 
-class CoordinatorService {
+class SyncCoordinatorService {
     Connection requestConnection(String token) {
         println("requestConnection(String token)");
 
@@ -148,7 +147,7 @@ class CoordinatorService {
     }
 }
 
-class GatewayService {
+class SyncGatewayService {
     InputStream downloadThingy() throws IOException {
         return blockingRequest(
             "http://localhost:7000",

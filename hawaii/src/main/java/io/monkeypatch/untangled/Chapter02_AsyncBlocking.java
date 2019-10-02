@@ -20,7 +20,7 @@ import static io.monkeypatch.untangled.utils.Log.println;
 
 public class Chapter02_AsyncBlocking {
 
-    private static final int MAX_CLIENTS = 50;
+    private static final int MAX_CLIENTS = 200;
 
     private final AsyncCoordinatorService coordinator = new AsyncCoordinatorService();
     private final AsyncGatewayService gateway = new AsyncGatewayService();
@@ -166,7 +166,7 @@ public class Chapter02_AsyncBlocking {
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws InterruptedException, ExecutionException {
-        Thread.sleep(5_000L);
+        Thread.sleep(15_000L);
 
         CompletableFuture<Void>[] futures = new CompletableFuture[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -213,8 +213,8 @@ class AsyncCoordinatorService {
 
         asyncRequest(
             elasticServiceExecutor,
-            "http://localhost:7000/token?value=" + (token == null ? "nothing" : token),
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
                 public void completed(InputStream is) {
@@ -246,8 +246,8 @@ class AsyncCoordinatorService {
 
         asyncRequest(
             elasticServiceExecutor,
-            "http://localhost:7000/heartbeat?token=" + token,
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
                 public void completed(InputStream is) {
@@ -279,8 +279,8 @@ class AsyncGatewayService {
     void downloadThingy(CompletionHandler<InputStream> handler, ExecutorService handlerExecutor) {
         asyncRequest(
             elasticRequestsExecutor,
-            "http://localhost:7000/download",
-            String.format(HEADERS_TEMPLATE, "GET", EMPTY, "text/*", String.valueOf(0)),
+            "http://localhost:7000",
+            String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
                 public void completed(InputStream result) {

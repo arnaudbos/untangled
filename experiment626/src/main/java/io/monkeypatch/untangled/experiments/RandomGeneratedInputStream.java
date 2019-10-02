@@ -102,4 +102,10 @@ public class RandomGeneratedInputStream extends InputStream {
         ITERATIVE,
         FIXED;
     }
+
+    @Override
+    public void close() throws IOException {
+        System.out.println("close");
+        super.close();
+    }
 }

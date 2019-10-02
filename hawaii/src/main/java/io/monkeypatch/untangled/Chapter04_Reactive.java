@@ -11,16 +11,23 @@ import reactor.retry.Repeat;
 
 import java.time.Duration;
 import java.util.Random;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.function.BiConsumer;
+import java.util.function.BinaryOperator;
+import java.util.function.Function;
+import java.util.function.Supplier;
+import java.util.stream.Collector;
 
 import static io.monkeypatch.untangled.utils.IO.*;
+import static io.monkeypatch.untangled.utils.Log.err;
 import static io.monkeypatch.untangled.utils.Log.println;
 
 public class Chapter04_Reactive {
 
-    private static final int MAX_CLIENTS = 50;
+    private static final int MAX_CLIENTS = 200;
 
     private final ReactiveCoordinatorService coordinator = new ReactiveCoordinatorService();
     private final ReactiveGatewayService gateway = new ReactiveGatewayService();
@@ -66,7 +73,7 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
             AtomicInteger total = new AtomicInteger();
             return gateway.downloadThingy(conn.getToken())
                 .takeUntilOther(makePulse(conn))
-                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
+//                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
                 .doOnNext(b -> total.updateAndGet(t -> t+b.length))
 //                .takeWhile(b -> total.get()<MAX_SIZE)
                 .then(Mono.just(i + ":: Download finished"));
@@ -88,7 +95,7 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
     private void run() {
         Flux.range(0, MAX_CLIENTS)
             .flatMap(this::getThingy)
-            .delaySubscription(Duration.ofSeconds(5L))
+            .delaySubscription(Duration.ofSeconds(15L))
             .blockLast();
     }
 
@@ -105,25 +112,35 @@ class ReactiveCoordinatorService {
     private static final Random random = new Random();
 
     Mono<Connection> requestConnection(String token) {
-        return Mono.just("requestConnection(String token)")
-            .doOnNext(Log::println)
-            .flatMapMany(o -> reactiveRequest("http://localhost:7000/token?value=" + (token == null ? "nothing" : token)))
-            .publishOn(Schedulers.parallel())
-            .then(Mono.fromSupplier(() -> {
-                int attempt = token == null ? 0 : Integer.parseInt(token);
-
-                return attempt > 4
-                    ? new Connection.Available("Ahoy!")
-                    : new Connection.Unavailable(20_000L, random.nextInt(2_000), String.valueOf(attempt + 1));
-            }));
+        return parseToken(
+            Mono.just("requestConnection(String token)")
+                .doOnNext(Log::println)
+                .flatMapMany(o -> reactiveRequest("http://localhost:7000/token?value=" + (token == null ? "nothing" : token)))
+                .publishOn(Schedulers.parallel())
+        );
     }
 
     Mono<Connection> heartbeat(String token) {
-        return Mono.just("heartbeat(String token)")
-            .doOnNext(Log::println)
-            .flatMapMany(o -> reactiveRequest("http://localhost:7000/heartbeat?token=" + token))
-            .publishOn(Schedulers.parallel())
-            .then(Mono.just(new Connection.Available("Ahoy!")));
+        return parseToken(
+            Mono.just("heartbeat(String token)")
+                .doOnNext(Log::println)
+                .flatMapMany(o -> reactiveRequest("http://localhost:7000/heartbeat?token=" + token))
+                .publishOn(Schedulers.parallel())
+        );
+    }
+
+    private Mono<Connection> parseToken(Flux<byte[]> f) {
+        return f
+            .map(String::new)
+            .collect(Collector.of(
+                StringBuilder::new,
+                StringBuilder::append,
+                (left, right) -> left,
+                StringBuilder::toString))
+            .map(IO::parseConnection)
+            .doOnError(t -> err("token error " + t.getMessage()))
+            .doOnCancel(() -> err("token cancelled"))
+            ;
     }
 }
 
