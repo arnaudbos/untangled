@@ -4,6 +4,7 @@ import io.monkeypatch.untangled.utils.*;
 
 import java.util.Random;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static io.monkeypatch.untangled.utils.IO.*;
 import static io.monkeypatch.untangled.utils.Log.err;
@@ -225,6 +226,7 @@ class AsyncNonBlockingCoordinatorService {
 
     void requestConnection(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("requestConnection(String token)");
+        AtomicReference<String> result = new AtomicReference<>();
 
         asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
@@ -237,9 +239,10 @@ class AsyncNonBlockingCoordinatorService {
 
                 @Override
                 public void received(byte[] data) {
-//                        println("requestConnection2 received");
+//                    println("requestConnection2 received");
                     Runnable r = () -> {
-//                            println("requestConnection2 read " + new String(data));
+                        result.set(new String(data).substring(34));
+//                        println("requestConnection2 read " + result.get());
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -250,12 +253,10 @@ class AsyncNonBlockingCoordinatorService {
 
                 @Override
                 public void completed() {
-//                        println("requestConnection2 completed");
+//                    println("requestConnection2 completed");
                     Runnable r = () -> {
-                        int attempt = token == null ? 0 : Integer.parseInt(token);
-                        if (handler != null) handler.completed(attempt > 4
-                            ? new Connection.Available("Ahoy!")
-                            : new Connection.Unavailable(20_000L, random.nextInt(2_000), String.valueOf(attempt + 1)));
+                        if (handler != null)
+                            handler.completed(parseConnection(result.get()));
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -279,6 +280,7 @@ class AsyncNonBlockingCoordinatorService {
 
     void heartbeat(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("heartbeat(String token)");
+        AtomicReference<String> result = new AtomicReference<>();
 
         asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
@@ -291,9 +293,10 @@ class AsyncNonBlockingCoordinatorService {
 
                 @Override
                 public void received(byte[] data) {
-//                        println("heartbeat received");
+//                    println("heartbeat received");
                     Runnable r = () -> {
-//                            println("heartbeat read " + new String(data));
+                        result.set(new String(data).substring(34));
+//                        println("heartbeat read " + result.get());
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -304,10 +307,10 @@ class AsyncNonBlockingCoordinatorService {
 
                 @Override
                 public void completed() {
-//                        println("heartbeat completed");
+//                    println("heartbeat completed");
                     Runnable r = () -> {
                         if (handler != null)
-                            handler.completed(new Connection.Available("Ahoy!"));
+                            handler.completed(parseConnection(result.get()));
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -357,7 +360,7 @@ class AsyncNonBlockingGatewayService {
 //                        println("downloadThingy completed");
                     if (handler != null)
                         if (handlerExecutor!=null) {
-                            handlerExecutor.submit(() -> handler.completed());
+                            handlerExecutor.submit(handler::completed);
                         } else {
                             handler.completed();
                         }
