@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.util.concurrent.CompletableFuture;
 
 import static io.monkeypatch.untangled.utils.IO.*;
 import static io.monkeypatch.untangled.utils.Log.err;
@@ -82,8 +83,6 @@ public class Chapter01_SyncBlocking {
             e.printStackTrace(pw);
             err(i + " :: Unexpected error " + sw.toString());
         }
-
-        println("Download finished");
     }
     //</editor-fold>
 
@@ -110,17 +109,31 @@ public class Chapter01_SyncBlocking {
     private void run() throws InterruptedException {
         Thread.sleep(15_000L);
 
+        CompletableFuture<Void>[] futures = new CompletableFuture[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {
             int finalI = i;
+            futures[i] = new CompletableFuture<>();
             elasticServiceExecutor.submit(() -> {
                 try {
                     getThingy(finalI);
+                    futures[finalI].complete(null);
                 } catch (EtaExceededException e) {
                     err("Couldn't getThingy because ETA exceeded: " + e);
+                    futures[finalI].completeExceptionally(e);
                 } catch (Exception e) {
                     err("Couldn't getThingy because something failed: " + e);
+                    futures[finalI].completeExceptionally(e);
                 }
             });
+        }
+
+        for(int i=0; i<MAX_CLIENTS; i++) {
+            try {
+                futures[i].get();
+            } catch (Exception ignored) {
+            } finally {
+                println(i + ":: Download finished");
+            }
         }
 
         elasticServiceExecutor.shutdown();

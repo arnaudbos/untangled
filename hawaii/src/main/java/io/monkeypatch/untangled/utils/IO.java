@@ -28,10 +28,7 @@ import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
 import java.util.Objects;
 import java.util.Scanner;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.ScheduledExecutorService;
-import java.util.concurrent.TimeUnit;
+import java.util.concurrent.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -75,12 +72,6 @@ public class IO {
     public static void init_Chapter02_AsyncBlocking() {
         elasticRequestsExecutor = Executors.newCachedThreadPool(new PrefixedThreadFactory("requests"));
         elasticServiceExecutor = Executors.newCachedThreadPool(new PrefixedThreadFactory("service"));
-    }
-
-    public static void init_Chapter02bis_ScheduledPartially() {
-        elasticRequestsExecutor = Executors.newCachedThreadPool(new PrefixedThreadFactory("requests"));
-        elasticServiceExecutor = Executors.newCachedThreadPool(new PrefixedThreadFactory("service"));
-        boundedPulseExecutor = Executors.newScheduledThreadPool(10, new PrefixedThreadFactory("pulse"));
     }
 
     public static void init_Chapter02bis_ScheduledFully() {
