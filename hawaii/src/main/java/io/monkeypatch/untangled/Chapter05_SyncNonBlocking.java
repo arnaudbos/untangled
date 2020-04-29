@@ -9,6 +9,9 @@ import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
 import java.util.Random;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 
 import static io.monkeypatch.untangled.utils.IO.*;
 import static io.monkeypatch.untangled.utils.Log.err;
@@ -59,9 +62,9 @@ public class Chapter05_SyncNonBlocking {
             println(i + " :: Got token, " + conn.getToken());
 
             Runnable pulse = makePulse(conn);
-            Fiber<Object> f = null;
+            Future<Object> f = null;
             try (InputStream content = gateway.downloadThingy()) {
-                f = FiberScope.background().schedule(pulse);
+                f = (Future<Object>) unboundedServiceExecutor.submit(pulse);
 
                 ignoreContent(content);
             } catch (IOException e) {
@@ -70,7 +73,7 @@ public class Chapter05_SyncNonBlocking {
             }
             finally {
                 if (f!=null) {
-                    f.cancel();
+                    f.cancel(true);
                 }
             }
 
@@ -121,32 +124,41 @@ public class Chapter05_SyncNonBlocking {
     private void run() throws InterruptedException {
         Thread.sleep(15_000L);
 
-        Fiber[] fibers = new Fiber[MAX_CLIENTS];
+        CompletableFuture<Void>[] futures = new CompletableFuture[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {
             int finalI = i;
-            fibers[i] = FiberScope.background().schedule(() -> {
+            futures[i] = new CompletableFuture<>();
+            unboundedServiceExecutor.submit(() -> {
                 try {
                     getThingy(finalI);
+                    futures[finalI].complete(null);
                 } catch (EtaExceededException e) {
                     err("Couldn't getThingy because ETA exceeded: " + e);
+                    futures[finalI].completeExceptionally(e);
                 } catch (Exception e) {
                     err("Couldn't getThingy because something failed: " + e);
-                    e.printStackTrace();
+                    futures[finalI].completeExceptionally(e);
                 }
             });
         }
 
         for(int i=0; i<MAX_CLIENTS; i++) {
             try {
-                fibers[i].join();
+                futures[i].get();
             } catch (Exception ignored) {
             } finally {
                 println(i + ":: Download finished");
             }
         }
+
+        unboundedServiceExecutor.shutdown();
+        while (!unboundedServiceExecutor.isTerminated()) {
+            Thread.sleep(2_000L);
+        }
     }
 
     public static void main(String[] args) throws InterruptedException {
+        IO.init_Chapter05_SyncNonBlocking();
         (new Chapter05_SyncNonBlocking()).run();
         println("Done.");
     }

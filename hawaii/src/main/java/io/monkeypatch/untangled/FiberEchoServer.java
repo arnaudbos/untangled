@@ -276,41 +276,44 @@ class ContinuationsLoop {
     }
 }
 
-class FibersLoop {
-    static void start(FiberEchoServer.IOConsumer consumer, int localPort) throws IOException {
-        println("start server on local port " + localPort);
-        var server = ServerSocketChannel.open();
-        server.configureBlocking(false);
-        server.bind(new InetSocketAddress(localPort));
-        var selector = Selector.open();
-        server.register(selector, SelectionKey.OP_ACCEPT);
-        for (; ; ) {
-            selector.select(key -> FiberScope.background().schedule(() -> {
-                try(SocketChannel channel = server.accept()) {
-//                    channel.configureBlocking(false);
-                    var buffer = ByteBuffer.allocateDirect(8192);
-                    var io = new FiberEchoServer.IO() {
-                        @Override
-                        public int read(ByteBuffer buffer) throws IOException {
-                            return channel.read(buffer);
-                        }
-
-                        @Override
-                        public int write(ByteBuffer buffer) throws IOException {
-                            return channel.write(buffer);
-                        }
-                    };
-                    consumer.accept(SCOPE, channel, buffer, io);
-                } catch (IOException e) {
-                    err(e.getMessage());
-                    closeUnconditionally(server);
-                    closeUnconditionally(selector);
-                    return;
-                }
-            }));
-        }
-    }
-}
+//
+// FiberScope/Structured concurrency does not exist anymore on JDK 15 😢
+//
+//class FibersLoop {
+//    static void start(FiberEchoServer.IOConsumer consumer, int localPort) throws IOException {
+//        println("start server on local port " + localPort);
+//        var server = ServerSocketChannel.open();
+//        server.configureBlocking(false);
+//        server.bind(new InetSocketAddress(localPort));
+//        var selector = Selector.open();
+//        server.register(selector, SelectionKey.OP_ACCEPT);
+//        for (; ; ) {
+//            selector.select(key -> FiberScope.background().schedule(() -> {
+//                try(SocketChannel channel = server.accept()) {
+////                    channel.configureBlocking(false);
+//                    var buffer = ByteBuffer.allocateDirect(8192);
+//                    var io = new FiberEchoServer.IO() {
+//                        @Override
+//                        public int read(ByteBuffer buffer) throws IOException {
+//                            return channel.read(buffer);
+//                        }
+//
+//                        @Override
+//                        public int write(ByteBuffer buffer) throws IOException {
+//                            return channel.write(buffer);
+//                        }
+//                    };
+//                    consumer.accept(SCOPE, channel, buffer, io);
+//                } catch (IOException e) {
+//                    err(e.getMessage());
+//                    closeUnconditionally(server);
+//                    closeUnconditionally(selector);
+//                    return;
+//                }
+//            }));
+//        }
+//    }
+//}
 
 class ThreadsLoop {
     static void start(FiberEchoServer.IOConsumer consumer, int localPort) throws IOException {

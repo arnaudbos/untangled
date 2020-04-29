@@ -47,6 +47,7 @@ public class IO {
     public static ScheduledExecutorService boundedRequestsExecutor;
     public static ScheduledExecutorService boundedServiceExecutor;
     public static ScheduledExecutorService boundedPulseExecutor;
+    public static ExecutorService unboundedServiceExecutor;
 
 
     //<editor-fold desc="synchronous thread-blocking request">
@@ -244,6 +245,10 @@ public class IO {
     //</editor-fold>
 
     //<editor-fold desc="synchronous fiber-blocking (non thread-blocking) request">
+    public static void init_Chapter05_SyncNonBlocking() {
+        unboundedServiceExecutor = Executors.newUnboundedVirtualThreadExecutor();
+    }
+
     public static InputStream fakeFiberRequest(String url, String headers, long delay) throws IOException {
         try {
             Thread.sleep(3_000L);
