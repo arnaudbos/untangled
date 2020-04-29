@@ -140,8 +140,9 @@ public class IO {
                                     channel.read(responseBuffer, responseBuffer, new java.nio.channels.CompletionHandler<>() {
                                         @Override
                                         public void completed(Integer read, ByteBuffer attachment) {
-//                                            println("Socket read completed: " + read);
+                                            println("Socket read completed: " + read);
                                             if (handler.isCancelled()) {
+                                                println("cancelled");
                                                 read = -1;
                                             }
 
@@ -149,18 +150,22 @@ public class IO {
                                                 attachment.flip();
                                                 byte[] data = new byte[attachment.limit()];
                                                 attachment.get(data);
+                                                println("data " + data);
                                                 if (handler != null) handler.received(data);
                                                 attachment.flip();
                                                 attachment.clear();
 
+                                                println("read again");
                                                 channel.read(attachment, attachment, this);
                                             } else if (read < 0) {
                                                 try {
                                                     channel.close();
                                                 } catch (IOException e) {
                                                 }
+                                                println("complete!");
                                                 if (handler != null) handler.completed();
                                             } else {
+                                                println("else read");
                                                 channel.read(attachment, attachment, this);
                                             }
                                         }
@@ -239,9 +244,9 @@ public class IO {
             .uri(uri.toString())
             .responseContent()
             .asByteArray()
-//                .doOnError(t -> err("req error " + t.getMessage()))
-//                .doOnCancel(() -> err("req cancelled"))
-//            .log(reactiveLogger)
+                .doOnError(t -> err("req error " + t.getMessage()))
+                .doOnCancel(() -> err("req cancelled"))
+            .log(reactiveLogger)
         );
     }
     //</editor-fold>

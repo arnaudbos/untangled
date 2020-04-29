@@ -5,9 +5,7 @@ import io.monkeypatch.untangled.utils.Connection;
 import io.monkeypatch.untangled.utils.EtaExceededException;
 import io.monkeypatch.untangled.utils.IO;
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.Random;
 import java.util.concurrent.*;
 
@@ -91,11 +89,9 @@ public class Chapter02bis_ScheduledFully {
                                 if (read==-1 || (total+=read)>=MAX_SIZE) break;
                             }
 
-                            println("Download finished");
-
                             if (handler!=null)
                                 handler.completed(null);
-                        } catch (IOException e) {
+                        } catch (Exception e) {
                             err("Download failed.");
                             if (handler!=null)
                                 handler.failed(e);
@@ -119,7 +115,7 @@ public class Chapter02bis_ScheduledFully {
 
             @Override
             public void failed(Throwable t) {
-                err("Task failed.");
+                err("Download failed.");
                 if (handler!=null) handler.failed(t);
             }
         });
@@ -177,18 +173,28 @@ public class Chapter02bis_ScheduledFully {
             getThingy(finalI, new CompletionHandler<>() {
                 @Override
                 public void completed(Void result) {
+                    println(finalI + " :: Download succeeded");
                     futures[finalI].complete(result);
                 }
 
                 @Override
                 public void failed(Throwable t) {
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    t.printStackTrace(pw);
+                    err(finalI + " :: Download failed " + sw.toString());
                     futures[finalI].completeExceptionally(t);
                 }
             });
         }
 
         for(int i=0; i<MAX_CLIENTS; i++) {
-            futures[i].get();
+            try {
+                futures[i].get();
+            } catch (Exception ignored) {
+            } finally {
+                println(i + ":: Download finished");
+            }
         }
 
         boundedRequestsExecutor.shutdown();
@@ -216,7 +222,7 @@ class FullyScheduledAsyncCoordinatorService {
         println("requestConnection(String token)");
 
         asyncRequest(
-            boundedServiceExecutor,
+            boundedRequestsExecutor,
             "http://localhost:7000",
             String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
@@ -224,7 +230,12 @@ class FullyScheduledAsyncCoordinatorService {
                 public void completed(InputStream is) {
                     Runnable r = () -> {
                         if (handler != null)
-                            handler.completed(parseToken(() -> is));
+                            try {
+                                Connection t = parseToken(() -> is);
+                                handler.completed(t);
+                            } catch (Exception e) {
+                                failed(e);
+                            }
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -249,7 +260,7 @@ class FullyScheduledAsyncCoordinatorService {
         println("heartbeat(String token)");
 
         asyncRequest(
-            boundedServiceExecutor,
+            boundedPulseExecutor,
             "http://localhost:7000",
             String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
@@ -257,7 +268,12 @@ class FullyScheduledAsyncCoordinatorService {
                 public void completed(InputStream is) {
                     Runnable r = () -> {
                         if (handler != null)
-                            handler.completed(parseToken(() -> is));
+                            try {
+                                Connection t = parseToken(() -> is);
+                                handler.completed(t);
+                            } catch (Exception e) {
+                                failed(e);
+                            }
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);

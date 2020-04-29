@@ -6,6 +6,8 @@ import io.monkeypatch.untangled.utils.IO;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 import static io.monkeypatch.untangled.utils.IO.*;
 import static io.monkeypatch.untangled.utils.Log.err;
@@ -48,12 +50,12 @@ public class Chapter01_SyncBlocking {
     //</editor-fold>
 
     //<editor-fold desc="Main 'controller' function (getThingy): easy imperative">
-    private void getThingy() throws EtaExceededException, IOException {
+    private void getThingy(int i) throws EtaExceededException, IOException {
         println("Start getThingy.");
 
         try {
             Connection.Available conn = getConnection();
-            println("Got token, " + conn.getToken());
+            println(i + " :: Got token, " + conn.getToken());
 
             Thread pulse = makePulse(conn);
             try (InputStream content = gateway.downloadThingy()) {
@@ -61,17 +63,24 @@ public class Chapter01_SyncBlocking {
 
                 ignoreContent(content);
             } catch (IOException e) {
-                err("Download failed.");
+                err(i + " :: Download failed.");
                 throw e;
             }
             finally {
                 pulse.interrupt();
             }
+
+            println(i + " :: Download succeeded");
         } catch (InterruptedException e) {
             // D'oh!
-            err("Task interrupted.");
+            err(i + " :: Task interrupted.");
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
+        } catch (Exception e) {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            err(i + " :: Unexpected error " + sw.toString());
         }
 
         println("Download finished");
@@ -102,9 +111,10 @@ public class Chapter01_SyncBlocking {
         Thread.sleep(15_000L);
 
         for(int i=0; i<MAX_CLIENTS; i++) {
+            int finalI = i;
             elasticServiceExecutor.submit(() -> {
                 try {
-                    getThingy();
+                    getThingy(finalI);
                 } catch (EtaExceededException e) {
                     err("Couldn't getThingy because ETA exceeded: " + e);
                 } catch (Exception e) {

@@ -240,6 +240,7 @@ class ContinuationsLoop {
                         @Override
                         public int write(ByteBuffer buffer) throws IOException {
                             int written;
+//                            println("writing " + buffer.toString());
                             while ((written = channel.write(buffer)) == 0) {
 //                                println("written " + written);
                                 key.interestOps(SelectionKey.OP_WRITE);

@@ -2,6 +2,8 @@ package io.monkeypatch.untangled;
 
 import io.monkeypatch.untangled.utils.*;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Random;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicReference;
@@ -63,12 +65,12 @@ public class Chapter03_AsyncNonBlocking {
 
     //<editor-fold desc="Main 'controller' function (getThingy): callback hell">
     private void getThingy(int i, CompletionHandler<Void> handler) {
-        println("Start getThingy.");
+        println(i + " :: Start getThingy.");
 
         getConnection(new CompletionHandler<>() {
             @Override
             public void completed(Connection.Available conn) {
-                println("Got token, " + conn.getToken());
+                println(i + " :: Got token, " + conn.getToken());
 
                 CompletableFuture<Void> downloadFut = new CompletableFuture<>();
                 gateway.downloadThingy(new RequestHandler() {
@@ -82,6 +84,7 @@ public class Chapter03_AsyncNonBlocking {
 //                        println(i + " :: Thingy received " + read);
                         if (!pulsing) {
                             Runnable pulse = new PulseRunnable(i, downloadFut, conn);
+                            println(i + " :: Starting pulse.");
                             boundedServiceExecutor.schedule(pulse, 2_000L, TimeUnit.MILLISECONDS);
                             pulsing = true;
                         }
@@ -89,7 +92,11 @@ public class Chapter03_AsyncNonBlocking {
                         // drop it
 //                        println(i + " :: Read " + read + " :: Total " + total + " :: MAX_SIZE " + MAX_SIZE + " :: " + new String(data));
 //                        println("read " + read + " bytes.");
+                        boolean prev = cancelled;
                         if ((total += read)>=MAX_SIZE) cancelled = true;
+                        if (!prev && cancelled) {
+                            println("cancelled!");
+                        }
                     }
 
                     @Override
@@ -100,7 +107,6 @@ public class Chapter03_AsyncNonBlocking {
                     @Override
                     public void completed() {
                         try {
-                            println("Download finished");
                             if (handler!=null)
                                 handler.completed(null);
                         }
@@ -192,18 +198,28 @@ public class Chapter03_AsyncNonBlocking {
             getThingy(finalI, new CompletionHandler<>() {
                 @Override
                 public void completed(Void result) {
+                    println(finalI + " :: Download succeeded.");
                     futures[finalI].complete(result);
                 }
 
                 @Override
                 public void failed(Throwable t) {
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    t.printStackTrace(pw);
+                    err(finalI + " :: Download failed " + sw.toString());
                     futures[finalI].completeExceptionally(t);
                 }
             });
         }
 
         for(int i=0; i<MAX_CLIENTS; i++) {
-            futures[i].get();
+            try {
+                futures[i].get();
+            } catch (Exception ignored) {
+            } finally {
+                println(i + ":: Download finished");
+            }
         }
 
         boundedServiceExecutor.shutdown();
@@ -226,7 +242,7 @@ class AsyncNonBlockingCoordinatorService {
 
     void requestConnection(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("requestConnection(String token)");
-        AtomicReference<String> result = new AtomicReference<>();
+        AtomicReference<StringBuilder> result = new AtomicReference<>(new StringBuilder());
 
         asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
@@ -239,24 +255,27 @@ class AsyncNonBlockingCoordinatorService {
 
                 @Override
                 public void received(byte[] data) {
-//                    println("requestConnection2 received");
-                    Runnable r = () -> {
-                        result.set(new String(data).substring(34));
+                    println("requestConnection2 received " + new String(data));
+                    try {
+                        result.updateAndGet(sb -> sb.append(new String(data)));
 //                        println("requestConnection2 read " + result.get());
-                    };
-                    if (handlerExecutor!=null) {
-                        handlerExecutor.submit(r);
-                    } else {
-                        r.run();
+                    } catch (Exception e) {
+                        failed(e);
                     }
                 }
 
                 @Override
                 public void completed() {
-//                    println("requestConnection2 completed");
+                    println("requestConnection2 completed " + result.get());
                     Runnable r = () -> {
-                        if (handler != null)
-                            handler.completed(parseConnection(result.get()));
+                        if (handler != null) {
+                            try {
+                                Connection conn = parseConnection(result.get().toString().substring(34));
+                                handler.completed(conn);
+                            } catch (Exception e) {
+                                failed(e);
+                            }
+                        }
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -267,7 +286,7 @@ class AsyncNonBlockingCoordinatorService {
 
                 @Override
                 public void failed(Throwable t) {
-                    err("requestConnection2 received");
+                    err("requestConnection2 failed");
                     if (handler != null)
                         if (handlerExecutor!=null) {
                             handlerExecutor.submit(() -> handler.failed(t));
@@ -280,7 +299,7 @@ class AsyncNonBlockingCoordinatorService {
 
     void heartbeat(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("heartbeat(String token)");
-        AtomicReference<String> result = new AtomicReference<>();
+        AtomicReference<StringBuilder> result = new AtomicReference<>(new StringBuilder());
 
         asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
@@ -295,8 +314,12 @@ class AsyncNonBlockingCoordinatorService {
                 public void received(byte[] data) {
 //                    println("heartbeat received");
                     Runnable r = () -> {
-                        result.set(new String(data).substring(34));
+                        try {
+                            result.updateAndGet(sb -> sb.append(new String(data)));
 //                        println("heartbeat read " + result.get());
+                        } catch (Exception e) {
+                            failed(e);
+                        }
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -310,7 +333,12 @@ class AsyncNonBlockingCoordinatorService {
 //                    println("heartbeat completed");
                     Runnable r = () -> {
                         if (handler != null)
-                            handler.completed(parseConnection(result.get()));
+                            try {
+                                Connection conn = parseConnection(result.get().toString().substring(34));
+                                handler.completed(conn);
+                            } catch (Exception e) {
+                                failed(e);
+                            }
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);

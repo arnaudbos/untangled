@@ -9,6 +9,8 @@ import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import reactor.retry.Repeat;
 
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.time.Duration;
 import java.util.Random;
 import java.util.Set;
@@ -73,10 +75,10 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
             AtomicInteger total = new AtomicInteger();
             return gateway.downloadThingy(conn.getToken())
                 .takeUntilOther(makePulse(conn))
-//                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
+                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
                 .doOnNext(b -> total.updateAndGet(t -> t+b.length))
 //                .takeWhile(b -> total.get()<MAX_SIZE)
-                .then(Mono.just(i + ":: Download finished"));
+                .then(Mono.just(i + ":: Download succeeded"));
         });
     }
     //</editor-fold>
@@ -95,6 +97,15 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
     private void run() {
         Flux.range(0, MAX_CLIENTS)
             .flatMap(this::getThingy)
+            .doOnError(t -> {
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                t.printStackTrace(pw);
+                err("Download failed " + sw.toString());
+            })
+            .doOnTerminate(() -> {
+                println("Download finished.");
+            })
             .delaySubscription(Duration.ofSeconds(15L))
             .blockLast();
     }
@@ -132,13 +143,20 @@ class ReactiveCoordinatorService {
     private Mono<Connection> parseToken(Flux<byte[]> f) {
         return f
             .map(String::new)
+            .doOnNext(s -> println("token piece " + s))
             .collect(Collector.of(
                 StringBuilder::new,
                 StringBuilder::append,
                 (left, right) -> left,
                 StringBuilder::toString))
+            .doOnNext(s -> println("token to parse " + s))
             .map(IO::parseConnection)
-            .doOnError(t -> err("token error " + t.getMessage()))
+            .doOnError(t -> {
+                StringWriter sw = new StringWriter();
+                PrintWriter pw = new PrintWriter(sw);
+                t.printStackTrace(pw);
+                err("token error " + sw.toString());
+            })
             .doOnCancel(() -> err("token cancelled"))
             ;
     }

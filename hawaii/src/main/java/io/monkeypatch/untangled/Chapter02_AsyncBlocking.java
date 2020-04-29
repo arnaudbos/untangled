@@ -5,9 +5,7 @@ import io.monkeypatch.untangled.utils.Connection;
 import io.monkeypatch.untangled.utils.EtaExceededException;
 import io.monkeypatch.untangled.utils.IO;
 
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.InputStream;
+import java.io.*;
 import java.util.Random;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
@@ -102,8 +100,6 @@ public class Chapter02_AsyncBlocking {
                                 if (read==-1 || (total+=read)>=MAX_SIZE) break;
                             }
 
-                            println("Download finished");
-
                             if (handler!=null)
                                 handler.completed(null);
                         } catch (FileNotFoundException e) {
@@ -175,18 +171,28 @@ public class Chapter02_AsyncBlocking {
             getThingy(finalI, new CompletionHandler<>() {
                 @Override
                 public void completed(Void result) {
+                    println(finalI + " :: Download succeeded.");
                     futures[finalI].complete(result);
                 }
 
                 @Override
                 public void failed(Throwable t) {
+                    StringWriter sw = new StringWriter();
+                    PrintWriter pw = new PrintWriter(sw);
+                    t.printStackTrace(pw);
+                    err(finalI + " :: Download failed " + sw.toString());
                     futures[finalI].completeExceptionally(t);
                 }
             });
         }
 
         for(int i=0; i<MAX_CLIENTS; i++) {
-            futures[i].get();
+            try {
+                futures[i].get();
+            } catch (Exception ignored) {
+            } finally {
+                println(i + ":: Download finished");
+            }
         }
 
         elasticRequestsExecutor.shutdown();
@@ -212,15 +218,21 @@ class AsyncCoordinatorService {
         println("requestConnection(String token)");
 
         asyncRequest(
-            elasticServiceExecutor,
+            elasticRequestsExecutor,
             "http://localhost:7000",
             String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
                 public void completed(InputStream is) {
                     Runnable r = () -> {
-                        if (handler != null)
-                            handler.completed(parseToken(() -> is));
+                        if (handler != null) {
+                            try {
+                                Connection t = parseToken(() -> is);
+                                handler.completed(t);
+                            } catch (Exception e) {
+                                failed(e);
+                            }
+                        }
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);
@@ -253,7 +265,12 @@ class AsyncCoordinatorService {
                 public void completed(InputStream is) {
                     Runnable r = () -> {
                         if (handler != null)
-                            handler.completed(parseToken(() -> is));
+                            try {
+                                Connection t = parseToken(() -> is);
+                                handler.completed(t);
+                            } catch (Exception e) {
+                                failed(e);
+                            }
                     };
                     if (handlerExecutor!=null) {
                         handlerExecutor.submit(r);

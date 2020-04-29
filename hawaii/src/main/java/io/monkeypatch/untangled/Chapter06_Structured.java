@@ -5,6 +5,8 @@ import io.monkeypatch.untangled.utils.EtaExceededException;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 
 import static io.monkeypatch.untangled.utils.IO.MAX_ETA_MS;
 import static io.monkeypatch.untangled.utils.IO.ignoreContent;
@@ -15,7 +17,7 @@ import static java.lang.FiberScope.Option.PROPAGATE_CANCEL;
 
 public class Chapter06_Structured {
 
-    private static final int MAX_CLIENTS = 50;
+    private static final int MAX_CLIENTS = 200;
 
     private final SyncCoordinatorService coordinator = new SyncCoordinatorService();
     private final SyncGatewayService gateway = new SyncGatewayService();
@@ -51,7 +53,7 @@ private Connection.Available getConnection(long eta, long wait, String token) th
     private void getThingy(int i) throws EtaExceededException, IOException {
         try (FiberScope scope = FiberScope.open(CANCEL_AT_CLOSE, PROPAGATE_CANCEL)) {
             var conn = getConnection();
-            println("Got token, " + conn.getToken());
+            println(i + " :: Got token, " + conn.getToken());
 
             try (InputStream content = gateway.downloadThingy()) {
                 Runnable pulse = makePulse(conn, i);
@@ -59,16 +61,21 @@ private Connection.Available getConnection(long eta, long wait, String token) th
 
                 ignoreContent(content);
             }
+            println(i + " :: Download succeeded.");
         } catch (IOException e) {
-            err("Download failed.");
+            err(i + " :: Download failed.");
             throw e;
         } catch (InterruptedException e) {
             // D'oh!
-            err("Task interrupted.");
+            err(i + " :: Task interrupted.");
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
+        } catch (Exception e) {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            err(i + " :: Download failed " + sw.toString());
         }
-        println(i + ":: Download finished");
 
         // Scoped fibers:
         // no "i:: Pulse!" are logged after ":: Download finished"
@@ -89,7 +96,7 @@ private Connection.Available getConnection(long eta, long wait, String token) th
                     // Periodic heartbeat
                     Thread.sleep(2_000L);
 
-                    println(i + ":: Pulse!");
+                    println(i + " :: Pulse!");
                     coordinator.heartbeat(conn.getToken());
                 } catch (InterruptedException e) {
                     // D'oh!
@@ -120,7 +127,12 @@ private Connection.Available getConnection(long eta, long wait, String token) th
         }
 
         for(int i=0; i<MAX_CLIENTS; i++) {
-            fibers[i].join();
+            try {
+                fibers[i].join();
+            } catch (Exception ignored) {
+            } finally {
+                println(i + " :: Download finished");
+            }
         }
     }
 

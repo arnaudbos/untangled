@@ -6,6 +6,8 @@ import io.monkeypatch.untangled.utils.IO;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.io.PrintWriter;
+import java.io.StringWriter;
 import java.util.Random;
 
 import static io.monkeypatch.untangled.utils.IO.*;
@@ -50,11 +52,11 @@ public class Chapter05_SyncNonBlocking {
 
     //<editor-fold desc="Main 'controller' function (getThingy): easy imperative">
     private void getThingy(int i) throws EtaExceededException, IOException {
-        println("Start getThingy.");
+        println(i + " :: Start getThingy.");
 
         try {
             Connection.Available conn = getConnection();
-            println("Got token, " + conn.getToken());
+            println(i + " :: Got token, " + conn.getToken());
 
             Runnable pulse = makePulse(conn);
             Fiber<Object> f = null;
@@ -63,7 +65,7 @@ public class Chapter05_SyncNonBlocking {
 
                 ignoreContent(content);
             } catch (IOException e) {
-                err("Download failed.");
+                err(i + " :: Download failed.");
                 throw e;
             }
             finally {
@@ -71,14 +73,19 @@ public class Chapter05_SyncNonBlocking {
                     f.cancel();
                 }
             }
+
+            println(i + " :: Download succeeded.");
         } catch (InterruptedException e) {
             // D'oh!
-            err("Task interrupted.");
+            err(i + " :: Task interrupted.");
             Thread.currentThread().interrupt();
             throw new RuntimeException(e);
+        } catch (Exception e) {
+            StringWriter sw = new StringWriter();
+            PrintWriter pw = new PrintWriter(sw);
+            e.printStackTrace(pw);
+            err(i + " :: Download failed " + sw.toString());
         }
-
-        println("Download finished");
 
         // Non-scoped fibers:
         // Without a ref on `f` and `f.cancel()`, some "i:: Pulse!"
@@ -130,7 +137,12 @@ public class Chapter05_SyncNonBlocking {
         }
 
         for(int i=0; i<MAX_CLIENTS; i++) {
-            fibers[i].join();
+            try {
+                fibers[i].join();
+            } catch (Exception ignored) {
+            } finally {
+                println(i + ":: Download finished");
+            }
         }
     }
 
