@@ -209,7 +209,8 @@ public class IO {
     private static Logger reactiveLogger = Loggers.getLogger("http-client");
 
     public static void init_Chapter04_Reactive() {
-        httpClient = HttpClient.create(ConnectionProvider.newConnection())
+//        Loggers.useConsoleLoggers();
+        httpClient = HttpClient.create(ConnectionProvider.elastic("plop"))
             .wiretap(true)
             .tcpConfiguration(tcpClient ->
                 tcpClient
@@ -235,9 +236,9 @@ public class IO {
             .uri(uri.toString())
             .responseContent()
             .asByteArray()
-                .doOnError(t -> err("req error " + t.getMessage()))
-                .doOnCancel(() -> err("req cancelled"))
-            .log(reactiveLogger)
+//            .doOnError(t -> err("req error " + t.getMessage()))
+//            .doOnCancel(() -> err("req cancelled " + url))
+//            .log(reactiveLogger)
         );
     }
     //</editor-fold>

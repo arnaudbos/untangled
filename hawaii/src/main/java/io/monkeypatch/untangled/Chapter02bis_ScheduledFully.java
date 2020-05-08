@@ -143,20 +143,28 @@ public class Chapter02bis_ScheduledFully {
                     new CompletionHandler<>() {
                         @Override
                         public void completed(Connection result) {
-                            if (!download.isDone()) {
-                                boundedPulseExecutor.schedule(PulseRunnable.this, 2_000L, TimeUnit.MILLISECONDS);
-                            }
+                            rePulseIfNotDone();
                         }
 
                         @Override
                         public void failed(Throwable t) {
-                            // Nevermind
+                            rePulseIfNotDone();
                         }
                     },
                     boundedPulseExecutor
                 );
             } else {
                 println(i + " :: Pulse stopped.");
+            }
+        }
+
+        private void rePulseIfNotDone() {
+            if (!download.isDone()) {
+                boundedPulseExecutor.schedule(
+                    PulseRunnable.this,
+                    2_000L,
+                    TimeUnit.MILLISECONDS
+                );
             }
         }
     }

@@ -183,7 +183,9 @@ public class FiberEchoServer {
 //            Thread.sleep(delay);
 //        } catch (InterruptedException e) { e.printStackTrace(); }
 
+//        println("send header Content-Length:" + value.length());
         io.write("HTTP/1.0 200 Content-Length:" + value.length() +"\r\n\r\n");
+//        println("send value: " + value);
         io.write(value);
     }
 }

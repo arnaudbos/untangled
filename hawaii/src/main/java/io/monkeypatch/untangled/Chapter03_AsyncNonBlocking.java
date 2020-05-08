@@ -168,20 +168,28 @@ public class Chapter03_AsyncNonBlocking {
                     new CompletionHandler<>() {
                         @Override
                         public void completed(Connection result) {
-                            if (!download.isDone()) {
-                                boundedServiceExecutor.schedule(PulseRunnable.this, 2_000L, TimeUnit.MILLISECONDS);
-                            }
+                            rePulseIfNotDone();
                         }
 
                         @Override
                         public void failed(Throwable t) {
-                            // Nevermind
+                            rePulseIfNotDone();
                         }
                     },
                     boundedServiceExecutor
                 );
             } else {
                 println(i + " :: Pulse stopped.");
+            }
+        }
+
+        private void rePulseIfNotDone() {
+            if (!download.isDone()) {
+                boundedServiceExecutor.schedule(
+                    PulseRunnable.this,
+                    2_000L,
+                    TimeUnit.MILLISECONDS
+                );
             }
         }
     }
@@ -242,7 +250,7 @@ class AsyncNonBlockingCoordinatorService {
 
     void requestConnection(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("requestConnection(String token)");
-        AtomicReference<StringBuilder> result = new AtomicReference<>(new StringBuilder());
+        StringBuilder result = new StringBuilder();
 
         asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
@@ -257,7 +265,7 @@ class AsyncNonBlockingCoordinatorService {
                 public void received(byte[] data) {
                     println("requestConnection2 received " + new String(data));
                     try {
-                        result.updateAndGet(sb -> sb.append(new String(data)));
+                        result.append(new String(data));
 //                        println("requestConnection2 read " + result.get());
                     } catch (Exception e) {
                         failed(e);
@@ -266,11 +274,11 @@ class AsyncNonBlockingCoordinatorService {
 
                 @Override
                 public void completed() {
-                    println("requestConnection2 completed " + result.get());
+                    println("requestConnection2 completed " + result.toString());
                     Runnable r = () -> {
                         if (handler != null) {
                             try {
-                                Connection conn = parseConnection(result.get().toString().substring(34));
+                                Connection conn = parseConnection(result.toString().substring(34));
                                 handler.completed(conn);
                             } catch (Exception e) {
                                 failed(e);
@@ -299,7 +307,7 @@ class AsyncNonBlockingCoordinatorService {
 
     void heartbeat(String token, CompletionHandler<Connection> handler, ExecutorService handlerExecutor) {
         println("heartbeat(String token)");
-        AtomicReference<StringBuilder> result = new AtomicReference<>(new StringBuilder());
+        StringBuilder result = new StringBuilder();
 
         asyncNonBlockingRequest(boundedServiceExecutor,
             "http://localhost:7000",
@@ -315,8 +323,8 @@ class AsyncNonBlockingCoordinatorService {
 //                    println("heartbeat received");
                     Runnable r = () -> {
                         try {
-                            result.updateAndGet(sb -> sb.append(new String(data)));
-//                        println("heartbeat read " + result.get());
+                            result.append(new String(data));
+//                        println("heartbeat read " + result.toStrinng());
                         } catch (Exception e) {
                             failed(e);
                         }
@@ -334,7 +342,7 @@ class AsyncNonBlockingCoordinatorService {
                     Runnable r = () -> {
                         if (handler != null)
                             try {
-                                Connection conn = parseConnection(result.get().toString().substring(34));
+                                Connection conn = parseConnection(result.toString().substring(34));
                                 handler.completed(conn);
                             } catch (Exception e) {
                                 failed(e);

@@ -39,35 +39,35 @@ public class Chapter04_Reactive {
         return getConnection(0, 0, null);
     }
 
-private Mono<Connection.Available> getConnection(long eta, long wait, String token) {
-    AtomicLong etaRef = new AtomicLong(eta);
-    AtomicLong waitRef = new AtomicLong(wait);
-    AtomicReference<String> tokenRef = new AtomicReference<>(token);
-    return Mono.defer(() -> {
-        if (etaRef.get() > MAX_ETA_MS) {
-            return Mono.error(new EtaExceededException());
-        }
-        return Mono.delay(Duration.ofMillis(waitRef.get()))
-            .flatMap(i -> coordinator.requestConnection(tokenRef.get()));
-    }).flatMap(c -> {
-        if (c instanceof Connection.Available) {
-            return Mono.just((Connection.Available) c);
-        } else {
-            Connection.Unavailable unavail = (Connection.Unavailable) c;
-            etaRef.set(unavail.getEta());
-            waitRef.set(unavail.getWait());
-            tokenRef.set(unavail.getToken());
-            return Mono.empty();
-        }
-    }).repeatWhenEmpty(Repeat
-        .onlyIf(ctx -> true)
-        .doOnRepeat(ctx ->
-            println(waitRef.get() + ", " + etaRef.get() + ", " + tokenRef.get())));
-}
+    private Mono<Connection.Available> getConnection(long eta, long wait, String token) {
+        AtomicLong etaRef = new AtomicLong(eta);
+        AtomicLong waitRef = new AtomicLong(wait);
+        AtomicReference<String> tokenRef = new AtomicReference<>(token);
+        return Mono.defer(() -> {
+            if (etaRef.get() > MAX_ETA_MS) {
+                return Mono.error(new EtaExceededException());
+            }
+            return Mono.delay(Duration.ofMillis(waitRef.get()))
+                .flatMap(i -> coordinator.requestConnection(tokenRef.get()));
+        }).flatMap(c -> {
+            if (c instanceof Connection.Available) {
+                return Mono.just((Connection.Available) c);
+            } else {
+                Connection.Unavailable unavail = (Connection.Unavailable) c;
+                etaRef.set(unavail.getEta());
+                waitRef.set(unavail.getWait());
+                tokenRef.set(unavail.getToken());
+                return Mono.empty();
+            }
+        }).repeatWhenEmpty(Repeat
+            .onlyIf(ctx -> true)
+            .doOnRepeat(ctx ->
+                println(waitRef.get() + ", " + etaRef.get() + ", " + tokenRef.get())));
+    }
     //</editor-fold>
 
     //<editor-fold desc="Main 'controller' function (getThingy): defer is mysterious, AtomicInteger is weird and takeUntilOther feels like a hack">
-    private Mono<String> getThingy(int i) {
+    private Mono<Integer> getThingy(int i) {
         return Mono.defer(() -> {
             println(i + ":: Start getThingy.");
             return getConnection();
@@ -75,10 +75,10 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
             AtomicInteger total = new AtomicInteger();
             return gateway.downloadThingy(conn.getToken())
                 .takeUntilOther(makePulse(conn))
-                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
+//                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
                 .doOnNext(b -> total.updateAndGet(t -> t+b.length))
-//                .takeWhile(b -> total.get()<MAX_SIZE)
-                .then(Mono.just(i + ":: Download succeeded"));
+                .takeWhile(b -> total.get()<MAX_SIZE)
+                .then(Mono.just(i));
         });
     }
     //</editor-fold>
@@ -89,6 +89,7 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
             .flatMap(l -> coordinator.heartbeat(conn.getToken()))
             .doOnNext(c -> println("Pulse!"))
             .then()
+            .doOnCancel(() -> println("Pulse cancelled"))
             .doOnTerminate(() -> println("Pulse terminated"));
     }
     //</editor-fold>
@@ -97,6 +98,7 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
     private void run() {
         Flux.range(0, MAX_CLIENTS)
             .flatMap(this::getThingy)
+            .doOnNext(i -> println(i + ":: Download succeeded"))
             .doOnError(t -> {
                 StringWriter sw = new StringWriter();
                 PrintWriter pw = new PrintWriter(sw);
@@ -104,7 +106,7 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
                 err("Download failed " + sw.toString());
             })
             .doOnTerminate(() -> {
-                println("Download finished.");
+                println("Done.");
             })
             .delaySubscription(Duration.ofSeconds(15L))
             .blockLast();
@@ -113,7 +115,6 @@ private Mono<Connection.Available> getConnection(long eta, long wait, String tok
     public static void main(String[] args) {
         IO.init_Chapter04_Reactive();
         (new Chapter04_Reactive()).run();
-        println("Done.");
     }
     //</editor-fold>
 }
@@ -143,7 +144,7 @@ class ReactiveCoordinatorService {
     private Mono<Connection> parseToken(Flux<byte[]> f) {
         return f
             .map(String::new)
-            .doOnNext(s -> println("token piece " + s))
+//            .doOnNext(s -> println("token piece " + s))
             .collect(Collector.of(
                 StringBuilder::new,
                 StringBuilder::append,
