@@ -7,6 +7,12 @@
     <groupId>io.monkeypatch.untangled</groupId>
     <artifactId>untangled</artifactId>
     <version>0.1.0-SNAPSHOT</version>
+    <packaging>pom</packaging>
+
+    <modules>
+        <module>experiment626</module>
+        <module>hawaii</module>
+    </modules>
 
     <build>
         <plugins>
