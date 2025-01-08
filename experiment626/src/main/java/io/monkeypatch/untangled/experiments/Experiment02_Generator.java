@@ -2,6 +2,9 @@ package io.monkeypatch.untangled.experiments;
 
 import java.util.Iterator;
 import java.util.NoSuchElementException;
+import jdk.internal.vm.Continuation;
+import jdk.internal.vm.ContinuationScope;
+
 
 public class Experiment02_Generator {
 

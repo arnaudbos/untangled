@@ -219,7 +219,7 @@ class AsyncCoordinatorService {
 
         asyncRequest(
             elasticRequestsExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
@@ -258,7 +258,7 @@ class AsyncCoordinatorService {
 
         asyncRequest(
             elasticServiceExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
@@ -296,7 +296,7 @@ class AsyncGatewayService {
     void downloadThingy(CompletionHandler<InputStream> handler, ExecutorService handlerExecutor) {
         asyncRequest(
             elasticRequestsExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override

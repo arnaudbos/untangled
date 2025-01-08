@@ -1,5 +1,8 @@
 package io.monkeypatch.untangled.experiments;
 
+import jdk.internal.vm.Continuation;
+import jdk.internal.vm.ContinuationScope;
+
 public class Experiment01_SimpleContinuation {
     public static void main(String[] args) {
         ContinuationScope scopeA = new ContinuationScope("scopeA");

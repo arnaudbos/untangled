@@ -1,5 +1,8 @@
 package io.monkeypatch.untangled.experiments;
 
+import jdk.internal.vm.Continuation;
+import jdk.internal.vm.ContinuationScope;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.util.concurrent.Executors;

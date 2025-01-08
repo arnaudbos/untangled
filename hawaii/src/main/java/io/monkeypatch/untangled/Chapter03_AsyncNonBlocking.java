@@ -197,7 +197,7 @@ public class Chapter03_AsyncNonBlocking {
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws InterruptedException, ExecutionException {
-        Thread.sleep(15_000L);
+//        Thread.sleep(15_000L);
 
         CompletableFuture<Void>[] futures = new CompletableFuture[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {
@@ -253,7 +253,7 @@ class AsyncNonBlockingCoordinatorService {
         StringBuilder result = new StringBuilder();
 
         asyncNonBlockingRequest(boundedServiceExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new RequestHandler() {
                 @Override
@@ -310,7 +310,7 @@ class AsyncNonBlockingCoordinatorService {
         StringBuilder result = new StringBuilder();
 
         asyncNonBlockingRequest(boundedServiceExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new RequestHandler() {
                 @Override
@@ -372,7 +372,7 @@ class AsyncNonBlockingCoordinatorService {
 class AsyncNonBlockingGatewayService {
     void downloadThingy(RequestHandler handler, ExecutorService handlerExecutor) {
         asyncNonBlockingRequest(boundedServiceExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "download", "application/octet-stream", String.valueOf(0)),
             new RequestHandler() {
                 @Override

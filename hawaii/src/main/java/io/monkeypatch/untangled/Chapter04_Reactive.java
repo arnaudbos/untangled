@@ -6,30 +6,35 @@ import io.monkeypatch.untangled.utils.IO;
 import io.monkeypatch.untangled.utils.Log;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Scheduler;
 import reactor.core.scheduler.Schedulers;
 import reactor.retry.Repeat;
 
+import javax.net.ssl.SSLException;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.URL;
 import java.time.Duration;
 import java.util.Random;
-import java.util.Set;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.function.BiConsumer;
-import java.util.function.BinaryOperator;
-import java.util.function.Function;
-import java.util.function.Supplier;
 import java.util.stream.Collector;
 
-import static io.monkeypatch.untangled.utils.IO.*;
+import static io.monkeypatch.untangled.utils.IO.DEMO_SERVER_URL;
+import static io.monkeypatch.untangled.utils.IO.MAX_ETA_MS;
+import static io.monkeypatch.untangled.utils.IO.MAX_SIZE;
+import static io.monkeypatch.untangled.utils.IO.httpClient;
+import static io.monkeypatch.untangled.utils.IO.reactiveLogger;
+import static io.monkeypatch.untangled.utils.IO.reactiveRequest;
 import static io.monkeypatch.untangled.utils.Log.err;
 import static io.monkeypatch.untangled.utils.Log.println;
+import static reactor.core.scheduler.Schedulers.DEFAULT_POOL_SIZE;
+import static reactor.core.scheduler.Schedulers.newParallel;
 
 public class Chapter04_Reactive {
 
-    private static final int MAX_CLIENTS = 200;
+    private static final int MAX_CLIENTS = 75;
 
     private final ReactiveCoordinatorService coordinator = new ReactiveCoordinatorService();
     private final ReactiveGatewayService gateway = new ReactiveGatewayService();
@@ -73,12 +78,13 @@ public class Chapter04_Reactive {
             return getConnection();
         }).flatMap(conn -> {
             AtomicInteger total = new AtomicInteger();
-            return gateway.downloadThingy(conn.getToken())
-                .takeUntilOther(makePulse(conn))
-//                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
-                .doOnNext(b -> total.updateAndGet(t -> t+b.length))
-                .takeWhile(b -> total.get()<MAX_SIZE)
-                .then(Mono.just(i));
+            return Mono.fromCallable(() -> total.incrementAndGet());
+//            return gateway.downloadThingy(conn.getToken())
+//                .takeUntilOther(makePulse(conn))
+////                .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
+//                .doOnNext(b -> total.updateAndGet(t -> t+b.length))
+//                .takeWhile(b -> total.get()<MAX_SIZE)
+//                .then(Mono.just(i));
         });
     }
     //</editor-fold>
@@ -97,6 +103,7 @@ public class Chapter04_Reactive {
     //<editor-fold desc="Run: simulate client calls">
     private void run() {
         Flux.range(0, MAX_CLIENTS)
+            .subscribeOn(Schedulers.single())
             .flatMap(this::getThingy)
             .doOnNext(i -> println(i + ":: Download succeeded"))
             .doOnError(t -> {
@@ -108,11 +115,11 @@ public class Chapter04_Reactive {
             .doOnTerminate(() -> {
                 println("Done.");
             })
-            .delaySubscription(Duration.ofSeconds(15L))
+//            .delaySubscription(Duration.ofSeconds(15L))
             .blockLast();
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws SSLException {
         IO.init_Chapter04_Reactive();
         (new Chapter04_Reactive()).run();
     }
@@ -123,28 +130,37 @@ public class Chapter04_Reactive {
 class ReactiveCoordinatorService {
     private static final Random random = new Random();
 
+    private static Scheduler REQUEST_PARALLEL = newParallel("request-parallel", DEFAULT_POOL_SIZE, true);
+    private static Scheduler PULSE_PARALLEL = newParallel("pulse-parallel", DEFAULT_POOL_SIZE, true);
+
     Mono<Connection> requestConnection(String token) {
         return parseToken(
             Mono.just("requestConnection(String token)")
+                .subscribeOn(REQUEST_PARALLEL)
                 .doOnNext(Log::println)
-                .flatMapMany(o -> reactiveRequest("http://localhost:7000/token?value=" + (token == null ? "nothing" : token)))
-                .publishOn(Schedulers.parallel())
+                .flatMapMany(_ -> reactiveRequest(DEMO_SERVER_URL + "/token?value=" + (token == null ? "nothing" : token)))
+                .publishOn(REQUEST_PARALLEL)
         );
     }
-
+    /*
+    () -> {
+                return newParallel("parallel", DEFAULT_POOL_SIZE, true);
+            }
+     */
     Mono<Connection> heartbeat(String token) {
         return parseToken(
             Mono.just("heartbeat(String token)")
+                .subscribeOn(PULSE_PARALLEL)
                 .doOnNext(Log::println)
-                .flatMapMany(o -> reactiveRequest("http://localhost:7000/heartbeat?token=" + token))
-                .publishOn(Schedulers.parallel())
+                .flatMapMany(o -> reactiveRequest(DEMO_SERVER_URL + "/heartbeat?token=" + token))
+                .publishOn(PULSE_PARALLEL)
         );
     }
 
     private Mono<Connection> parseToken(Flux<byte[]> f) {
         return f
             .map(String::new)
-//            .doOnNext(s -> println("token piece " + s))
+            .doOnNext(s -> println("token piece " + s))
             .collect(Collector.of(
                 StringBuilder::new,
                 StringBuilder::append,
@@ -164,9 +180,12 @@ class ReactiveCoordinatorService {
 }
 
 class ReactiveGatewayService {
+
+    private static Scheduler DOWNLOAD_PARALLEL = newParallel("download-parallel", DEFAULT_POOL_SIZE, true);
+
     Flux<byte[]> downloadThingy(String token) {
-        return reactiveRequest("http://localhost:7000/download")
-            .publishOn(Schedulers.parallel())
+        return reactiveRequest(DEMO_SERVER_URL + "/download")
+            .publishOn(DOWNLOAD_PARALLEL)
             ;
     }
 }

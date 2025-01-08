@@ -122,7 +122,7 @@ public class Chapter05_SyncNonBlocking {
 
     //<editor-fold desc="Run: simulate client calls">
     private void run() throws InterruptedException {
-        Thread.sleep(15_000L);
+//        Thread.sleep(15_000L);
 
         CompletableFuture<Void>[] futures = new CompletableFuture[MAX_CLIENTS];
         for(int i=0; i<MAX_CLIENTS; i++) {

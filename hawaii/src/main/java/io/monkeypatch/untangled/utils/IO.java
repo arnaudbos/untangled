@@ -1,6 +1,7 @@
 package io.monkeypatch.untangled.utils;
 
 import io.netty.channel.ChannelOption;
+import io.netty.handler.logging.LogLevel;
 import io.netty.handler.ssl.SslContextBuilder;
 import io.netty.handler.timeout.ReadTimeoutHandler;
 import io.netty.handler.timeout.WriteTimeoutHandler;
@@ -10,9 +11,13 @@ import reactor.netty.http.HttpProtocol;
 import reactor.netty.http.client.HttpClient;
 import reactor.netty.resources.ConnectionProvider;
 import reactor.netty.tcp.SslProvider;
+import reactor.netty.tcp.TcpResources;
+import reactor.netty.tcp.TcpSslContextSpec;
+import reactor.netty.transport.logging.AdvancedByteBufFormat;
 import reactor.util.Logger;
 import reactor.util.Loggers;
 
+import javax.net.ssl.SSLException;
 import java.io.*;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
@@ -26,6 +31,7 @@ import java.nio.channels.SocketChannel;
 import java.nio.charset.Charset;
 import java.nio.charset.CharsetDecoder;
 import java.nio.charset.StandardCharsets;
+import java.time.Duration;
 import java.util.Objects;
 import java.util.Scanner;
 import java.util.concurrent.*;
@@ -36,6 +42,9 @@ import static io.monkeypatch.untangled.utils.Log.err;
 import static io.monkeypatch.untangled.utils.Log.println;
 
 public class IO {
+
+    public final static int DEMO_SERVER_PORT = 7001;
+    public final static String DEMO_SERVER_URL = "http://localhost:" + DEMO_SERVER_PORT;
 
     public static final String HEADERS_TEMPLATE = "%s /%s HTTP/1.0\r\nAccept: %s\r\nContent-Length: %s\r\nContent-Type: text/plain\r\n";
     public static final String EMPTY = "";
@@ -206,47 +215,60 @@ public class IO {
     //</editor-fold>
 
     //<editor-fold desc="reactive (asynchronous non thread-blocking request)">
-    private static HttpClient httpClient;
-    private static Logger reactiveLogger = Loggers.getLogger("http-client");
+    public static HttpClient httpClient;
+    public static Logger reactiveLogger = Loggers.getLogger("http-client");
 
-    public static void init_Chapter04_Reactive() {
+    public static void init_Chapter04_Reactive() throws SSLException {
 //        Loggers.useConsoleLoggers();
-        httpClient = HttpClient.create(ConnectionProvider.elastic("plop"))
+        httpClient = HttpClient
+            .create(
+                ConnectionProvider.builder("plop")
+//                    .maxConnections(1)
+                    .maxConnections(Integer.MAX_VALUE)
+                    .pendingAcquireTimeout(Duration.ofMillis(0))
+                    .pendingAcquireMaxCount(-1)
+                    .maxIdleTime(Duration.ofSeconds(200))
+                    .maxLifeTime(Duration.ofSeconds(600))
+                    .build()
+            )
+            .keepAlive(false)
+            .responseTimeout(Duration.ofSeconds(30))
+            .protocol(HttpProtocol.HTTP11)
             .wiretap(true)
-            .tcpConfiguration(tcpClient ->
-                tcpClient
-                    .secure(SslProvider.builder()
-                        .sslContext(SslContextBuilder.forClient())
-                        .defaultConfiguration(SslProvider.DefaultConfigurationType.TCP)
-                        .handshakeTimeoutMillis(600_000)
-                        .build())
-                    .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 300_000)
-                    .doOnConnected(conn -> conn
-                        .addHandlerLast(new ReadTimeoutHandler(300, TimeUnit.SECONDS))
-                        .addHandlerLast(new WriteTimeoutHandler(300, TimeUnit.SECONDS)))
-            );
+//            .secure(SslProvider.builder()
+//                .sslContext(SslContextBuilder.forClient().build())
+//                .handshakeTimeoutMillis(600_000)
+//                .build()
+//            )
+            .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 300_000)
+            .doOnConnected(conn -> conn
+                .addHandlerLast(new ReadTimeoutHandler(300, TimeUnit.SECONDS))
+                .addHandlerLast(new WriteTimeoutHandler(300, TimeUnit.SECONDS)))
+        ;
+        httpClient.warmup().block();
     }
 
     public static Flux<byte[]> reactiveRequest(String url) {
         return Mono.fromCallable(() -> {
             println("Starting request to " + url);
-            return new URL(url);
-        }).flatMapMany(uri -> httpClient
-            // I'm lazy and reactor-netty's client is right there on the shelf...
-            .get()
+            var uri = url;
+//            var uri = "https://httpbin.org/status/200";
+            return new URL(uri);
+        }).flatMapMany(uri -> httpClient.get()
             .uri(uri.toString())
             .responseContent()
             .asByteArray()
-//            .doOnError(t -> err("req error " + t.getMessage()))
-//            .doOnCancel(() -> err("req cancelled " + url))
-//            .log(reactiveLogger)
+            .doOnNext(bytes -> println("read " + bytes.length + " bytes."))
+            .doOnError(t -> err("req error " + t.getClass() + " ---- " + t.getMessage()))
+            .doOnCancel(() -> err("req cancelled " + url))
+            .log(reactiveLogger)
         );
     }
     //</editor-fold>
 
     //<editor-fold desc="synchronous fiber-blocking (non thread-blocking) request">
     public static void init_Chapter05_SyncNonBlocking() {
-        unboundedServiceExecutor = Executors.newUnboundedVirtualThreadExecutor();
+        unboundedServiceExecutor = Executors.newVirtualThreadPerTaskExecutor();
     }
 
     public static InputStream fakeFiberRequest(String url, String headers, long delay) throws IOException {
@@ -380,6 +402,7 @@ public class IO {
     }
 
     public static Connection parseConnection(String resp) {
+        resp = resp.trim();
         Matcher m = available.matcher(resp);
         if (m.matches()) {
 //            println("token available");

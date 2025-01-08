@@ -2,10 +2,14 @@ package io.monkeypatch.untangled;
 
 import io.monkeypatch.untangled.utils.RandomGeneratedInputStream;
 
+import jdk.internal.vm.Continuation;
+import jdk.internal.vm.ContinuationScope;
+
 import java.io.Closeable;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.net.StandardSocketOptions;
 import java.nio.ByteBuffer;
 import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
@@ -17,8 +21,10 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
-import static io.monkeypatch.untangled.FiberEchoServer.*;
+import static io.monkeypatch.untangled.FiberDemoServer.*;
+import static io.monkeypatch.untangled.utils.IO.DEMO_SERVER_PORT;
 import static io.monkeypatch.untangled.utils.IO.MAX_ETA_MS;
 import static io.monkeypatch.untangled.utils.Log.err;
 import static io.monkeypatch.untangled.utils.Log.println;
@@ -29,7 +35,7 @@ import static io.monkeypatch.untangled.utils.Log.println;
  * - fiber version and thread-based version for testing purposes
  * - TODO: Keep-Alive...
  */
-public class FiberEchoServer {
+public class FiberDemoServer {
 
     private static final Random random = new Random();
     private static final int MAX_SIZE = 10 * 1024 * 1024;
@@ -38,9 +44,16 @@ public class FiberEchoServer {
     static final ScheduledExecutorService continuationLoopScheduler = Executors.newSingleThreadScheduledExecutor();
     static final ExecutorService threadLoopPool = Executors.newCachedThreadPool();
 
+    enum ServerMode {
+        CONTINUATIONS,
+        THREADS,
+        VIRTUAL_THREADS,
+    }
+
     public interface IO {
         int read(ByteBuffer buffer) throws IOException;
         int write(ByteBuffer buffer) throws IOException;
+        void done() throws IOException;
 
         default String readLine(ByteBuffer buffer) throws IOException {
             int read;
@@ -86,7 +99,10 @@ public class FiberEchoServer {
         }
     }
 
+    static AtomicReference<ServerMode> mode = new AtomicReference<>();
+
     public static void main(String[] args) throws IOException {
+
         AtomicInteger reqs = new AtomicInteger();
         IOConsumer consumer = (scope, channel, buffer, io) -> {
             try(channel) {
@@ -121,23 +137,27 @@ public class FiberEchoServer {
                                 replyWithAvailableToken(scope, io, 5);
                                 break;
                             case "download":
-                                io.write("HTTP/1.0 200 OK\nContent-Length:" + MAX_SIZE + "\n\n");
+                                io.write("HTTP/1.0 200 OK\r\nContent-Length:" + MAX_SIZE + "\r\n\r\n");
                                 try (InputStream file = new RandomGeneratedInputStream(MAX_SIZE)) {
                                     byte[] buff = new byte[8192];
                                     for (int i = 0; file.read(buff) != -1; i++) {
                                         ByteBuffer r = ByteBuffer.wrap(buff);
 //                                        println("" + i);
                                         if (i % 10 == 0) {
-                                            // ContinuationsLoop only
-                                            var k = Continuation.getCurrentContinuation(scope);
                                             var delay = random.nextInt(500);
-                                            continuationLoopScheduler.schedule(k::run, delay, TimeUnit.MILLISECONDS);
-                                            Continuation.yield(scope);
 
-                                            // ThreadsLoop or FibersLoop only
-//                                        try {
-//                                            Thread.sleep(delay);
-//                                        } catch (InterruptedException e) { e.printStackTrace(); }
+                                            switch (mode.get()) {
+                                                case CONTINUATIONS:
+                                                    var k = Continuation.getCurrentContinuation(scope);
+                                                    continuationLoopScheduler.schedule(k::run, delay, TimeUnit.MILLISECONDS);
+                                                    Continuation.yield(scope);
+                                                    break;
+                                                case THREADS:
+                                                case VIRTUAL_THREADS:
+                                                    try {
+                                                        Thread.sleep(delay);
+                                                    } catch (InterruptedException e) { e.printStackTrace(); }
+                                            }
                                         }
                                         do {
                                             io.write(r);
@@ -154,9 +174,20 @@ public class FiberEchoServer {
             }
         };
 
-        ContinuationsLoop.start(consumer, 7000);
-//        FibersLoop.start(consumer, 7000);
-//        ThreadsLoop.start(consumer, 7000);
+        switch (ServerMode.THREADS) { // Play here
+            case CONTINUATIONS:
+                mode.set(ServerMode.CONTINUATIONS);
+                ContinuationsLoop.start(consumer, DEMO_SERVER_PORT);
+                break;
+            case THREADS:
+                mode.set(ServerMode.THREADS);
+                ThreadsLoop.start(consumer, DEMO_SERVER_PORT);
+                break;
+            case VIRTUAL_THREADS:
+                mode.set(ServerMode.VIRTUAL_THREADS);
+                VirtualThreadsLoop.start(consumer, DEMO_SERVER_PORT);
+                break;
+        }
     }
 
     private static void replyWithUnavailableToken(ContinuationScope scope, IO io, int token) throws IOException {
@@ -172,26 +203,39 @@ public class FiberEchoServer {
     }
 
     private static void replyWithDelay(ContinuationScope scope, IO io, String value) throws IOException {
-        // ContinuationsLoop only
-        var k = Continuation.getCurrentContinuation(scope);
         var delay = random.nextInt(2_000);
-        continuationLoopScheduler.schedule(k::run, delay, TimeUnit.MILLISECONDS);
-        Continuation.yield(scope);
-
-        // ThreadsLoop or FibersLoop only
-//        try {
-//            Thread.sleep(delay);
-//        } catch (InterruptedException e) { e.printStackTrace(); }
+        switch (mode.get()) {
+            case CONTINUATIONS:
+                var k = Continuation.getCurrentContinuation(scope);
+                continuationLoopScheduler.schedule(k::run, delay, TimeUnit.MILLISECONDS);
+                Continuation.yield(scope);
+                break;
+            case THREADS:
+            case VIRTUAL_THREADS:
+                try {
+                    Thread.sleep(delay);
+                } catch (InterruptedException e) { e.printStackTrace(); }
+                break;
+        }
 
 //        println("send header Content-Length:" + value.length());
-        io.write("HTTP/1.0 200 Content-Length:" + value.length() +"\r\n\r\n");
+//        io.write("HTTP/1.0 200 OK\n");
+//        io.write("Content-Length:" + value.length() + "\n\n");
+//        io.write("HTTP/1.0 200 Content-Length:" + value.length() +"\r\n\r\n");
 //        println("send value: " + value);
-        io.write(value);
+//        io.write(value);
+        var data = (value + "\r\n").getBytes();
+        io.write("HTTP/1.1 200 OK\r\n");
+        println("data length: " + data.length);
+        io.write("Content-Length:" + data.length + "\r\n");
+        io.write("Connection: close\r\n\r\n");
+        io.write(ByteBuffer.wrap(data));
+        io.done();
     }
 }
 
 class ContinuationsLoop {
-    static void start(FiberEchoServer.IOConsumer consumer, int localPort) throws IOException {
+    static void start(FiberDemoServer.IOConsumer consumer, int localPort) throws IOException {
         println("start server on local port " + localPort);
         var server = ServerSocketChannel.open();
         server.configureBlocking(false);
@@ -226,7 +270,7 @@ class ContinuationsLoop {
                 var continuation = new Continuation(SCOPE, () -> {
 //                    println("continuation start");
                     var buffer = ByteBuffer.allocateDirect(8192);
-                    var io = new FiberEchoServer.IO() {
+                    var io = new FiberDemoServer.IO() {
                         @Override
                         public int read(ByteBuffer buffer) throws IOException {
                             int read;
@@ -242,14 +286,22 @@ class ContinuationsLoop {
                         @Override
                         public int write(ByteBuffer buffer) throws IOException {
                             int written;
-//                            println("writing " + buffer.toString());
+                            println("writing " + buffer.toString());
                             while ((written = channel.write(buffer)) == 0) {
-//                                println("written " + written);
+                                println("written " + written);
                                 key.interestOps(SelectionKey.OP_WRITE);
+                                println("yield continuation");
                                 Continuation.yield(SCOPE);
+                                println("restart continuation");
                             }
                             key.interestOps(0);
                             return written;
+                        }
+
+                        @Override
+                        public void done() throws IOException {
+                            channel.shutdownOutput();
+                            channel.close();
                         }
                     };
                     try {
@@ -261,6 +313,7 @@ class ContinuationsLoop {
                         e.printStackTrace();
                     } finally {
                         key.cancel();
+                        closeUnconditionally(channel);
                     }
                 });
                 key.attach(continuation);
@@ -276,57 +329,21 @@ class ContinuationsLoop {
     }
 }
 
-//
-// FiberScope/Structured concurrency does not exist anymore on JDK 15 😢
-//
-//class FibersLoop {
-//    static void start(FiberEchoServer.IOConsumer consumer, int localPort) throws IOException {
-//        println("start server on local port " + localPort);
-//        var server = ServerSocketChannel.open();
-//        server.configureBlocking(false);
-//        server.bind(new InetSocketAddress(localPort));
-//        var selector = Selector.open();
-//        server.register(selector, SelectionKey.OP_ACCEPT);
-//        for (; ; ) {
-//            selector.select(key -> FiberScope.background().schedule(() -> {
-//                try(SocketChannel channel = server.accept()) {
-////                    channel.configureBlocking(false);
-//                    var buffer = ByteBuffer.allocateDirect(8192);
-//                    var io = new FiberEchoServer.IO() {
-//                        @Override
-//                        public int read(ByteBuffer buffer) throws IOException {
-//                            return channel.read(buffer);
-//                        }
-//
-//                        @Override
-//                        public int write(ByteBuffer buffer) throws IOException {
-//                            return channel.write(buffer);
-//                        }
-//                    };
-//                    consumer.accept(SCOPE, channel, buffer, io);
-//                } catch (IOException e) {
-//                    err(e.getMessage());
-//                    closeUnconditionally(server);
-//                    closeUnconditionally(selector);
-//                    return;
-//                }
-//            }));
-//        }
-//    }
-//}
-
-class ThreadsLoop {
-    static void start(FiberEchoServer.IOConsumer consumer, int localPort) throws IOException {
+class VirtualThreadsLoop {
+    static void start(FiberDemoServer.IOConsumer consumer, int localPort) throws IOException {
         println("start server on local port " + localPort);
         var server = ServerSocketChannel.open();
-        server.configureBlocking(true);
+        server.configureBlocking(false);
         server.bind(new InetSocketAddress(localPort));
+        var selector = Selector.open();
+        server.register(selector, SelectionKey.OP_ACCEPT);
+        var i = new AtomicInteger(0);
         for (; ; ) {
-            SocketChannel channel = server.accept();
-            threadLoopPool.submit(() -> {
-                try(channel) {
+            selector.select(key -> Thread.ofVirtual().name("acceptor-" + i.get()).start(() -> {
+                try(SocketChannel channel = server.accept()) {
+//                    channel.configureBlocking(false);
                     var buffer = ByteBuffer.allocateDirect(8192);
-                    var io = new FiberEchoServer.IO() {
+                    var io = new FiberDemoServer.IO() {
                         @Override
                         public int read(ByteBuffer buffer) throws IOException {
                             return channel.read(buffer);
@@ -336,12 +353,64 @@ class ThreadsLoop {
                         public int write(ByteBuffer buffer) throws IOException {
                             return channel.write(buffer);
                         }
+
+                        @Override
+                        public void done() throws IOException {
+                            channel.shutdownOutput();
+                            channel.close();
+                        }
                     };
                     consumer.accept(SCOPE, channel, buffer, io);
                 } catch (IOException e) {
                     err(e.getMessage());
                     closeUnconditionally(server);
-                    return;
+                    closeUnconditionally(selector);
+                }
+            }));
+        }
+    }
+}
+
+class ThreadsLoop {
+    static void start(FiberDemoServer.IOConsumer consumer, int localPort) throws IOException {
+        println("start server on local port " + localPort);
+        var server = ServerSocketChannel.open();
+        server.configureBlocking(true);
+        server.bind(new InetSocketAddress(localPort));
+        for (; ; ) {
+            SocketChannel channel = server.accept();
+            channel.setOption(StandardSocketOptions.TCP_NODELAY, true);
+            channel.setOption(StandardSocketOptions.SO_SNDBUF, 65536);
+            channel.setOption(StandardSocketOptions.SO_RCVBUF, 65536);
+            threadLoopPool.submit(() -> {
+                try(channel) {
+                    var buffer = ByteBuffer.allocateDirect(8192);
+                    var io = new FiberDemoServer.IO() {
+                        @Override
+                        public int read(ByteBuffer buffer) throws IOException {
+                            return channel.read(buffer);
+                        }
+
+                        @Override
+                        public int write(ByteBuffer buffer) throws IOException {
+                            return channel.write(buffer);
+                        }
+
+                        @Override
+                        public void done() throws IOException {
+                            channel.shutdownOutput();
+                            try {
+                                Thread.sleep(100);
+                            } catch (InterruptedException e) {
+                                throw new RuntimeException(e);
+                            }
+                            channel.close();
+                        }
+                    };
+                    consumer.accept(SCOPE, channel, buffer, io);
+                } catch (IOException e) {
+                    err(e.getMessage());
+                    closeUnconditionally(server);
                 }
             });
         }

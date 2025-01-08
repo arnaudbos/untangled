@@ -231,7 +231,7 @@ class FullyScheduledAsyncCoordinatorService {
 
         asyncRequest(
             boundedRequestsExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
@@ -269,7 +269,7 @@ class FullyScheduledAsyncCoordinatorService {
 
         asyncRequest(
             boundedPulseExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override
@@ -307,7 +307,7 @@ class FullyScheduledAsyncGatewayService {
     void downloadThingy(CompletionHandler<InputStream> handler, ExecutorService handlerExecutor) {
         asyncRequest(
             boundedRequestsExecutor,
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0)),
             new CompletionHandler<>() {
                 @Override

@@ -30,7 +30,7 @@ public class AsyncFileChannel {
         AsynchronousFileChannel[] fileChannels = new AsynchronousFileChannel[NB_FILES];
         for (int i=0;i<NB_FILES;i++) {
             try {
-                Path path = Paths.get("/Users/arnaud/Lab/untangled/hawaii/src/main/java/io/monkeypatch/untangled/hawaii/Chapter01_Blocking.java");
+                Path path = Paths.get("/Users/arnaud/Lab/untangled/hawaii/src/main/java/io/monkeypatch/untangled/Chapter01_SyncBlocking.java");
                 fileChannels[i] =
                     AsynchronousFileChannel.open(path, StandardOpenOption.READ);
 

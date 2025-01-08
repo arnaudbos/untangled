@@ -155,7 +155,7 @@ class SyncCoordinatorService {
         println("requestConnection(String token)");
 
         return parseToken(() -> blockingRequest(
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "token?value=" + (token == null ? "nothing" : token), "text/*", String.valueOf(0))
         ));
     }
@@ -164,7 +164,7 @@ class SyncCoordinatorService {
         println("heartbeat(String token)");
 
         return parseToken(() -> blockingRequest(
-            "https://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "heartbeat?token=" + token, "text/*", String.valueOf(0))
         ));
     }
@@ -173,7 +173,7 @@ class SyncCoordinatorService {
 class SyncGatewayService {
     InputStream downloadThingy() throws IOException {
         return blockingRequest(
-            "http://localhost:7000",
+            DEMO_SERVER_URL,
             String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0))
         );
     }
