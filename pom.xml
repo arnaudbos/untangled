@@ -22,12 +22,10 @@
                 <configuration>
                     <source>23</source>
                     <target>23</target>
-                    <compilerArgs>--enable-preview</compilerArgs>
                     <compilerArgs>
+                        <arg>--enable-preview</arg>
                         <arg>--add-exports</arg>
                         <arg>java.base/jdk.internal.misc=ALL-UNNAMED</arg>
-                    </compilerArgs>
-                    <compilerArgs>
                         <arg>--add-exports</arg>
                         <arg>java.base/jdk.internal.vm=ALL-UNNAMED</arg>
                     </compilerArgs>

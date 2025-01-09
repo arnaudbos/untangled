@@ -8,6 +8,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.PrintWriter;
 import java.io.StringWriter;
+import java.net.URISyntaxException;
 import java.util.concurrent.CompletableFuture;
 
 import static io.monkeypatch.untangled.utils.IO.*;
@@ -172,9 +173,13 @@ class SyncCoordinatorService {
 
 class SyncGatewayService {
     InputStream downloadThingy() throws IOException {
-        return blockingRequest(
-            DEMO_SERVER_URL,
-            String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0))
-        );
+        try {
+            return blockingRequest(
+                DEMO_SERVER_URL,
+                String.format(HEADERS_TEMPLATE, "GET", "download", "text/*", String.valueOf(0))
+            );
+        } catch (URISyntaxException e) {
+            throw new RuntimeException(e);
+        }
     }
 }

@@ -1,9 +1,11 @@
 package io.monkeypatch.untangled;
 
 import io.monkeypatch.untangled.utils.RandomGeneratedInputStream;
-
 import jdk.internal.vm.Continuation;
 import jdk.internal.vm.ContinuationScope;
+import reactor.core.publisher.Flux;
+import reactor.core.publisher.Mono;
+import reactor.netty.http.server.HttpServer;
 
 import java.io.Closeable;
 import java.io.IOException;
@@ -15,6 +17,7 @@ import java.nio.channels.SelectionKey;
 import java.nio.channels.Selector;
 import java.nio.channels.ServerSocketChannel;
 import java.nio.channels.SocketChannel;
+import java.time.Duration;
 import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -23,7 +26,9 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 
-import static io.monkeypatch.untangled.FiberDemoServer.*;
+import static io.monkeypatch.untangled.FiberDemoServer.SCOPE;
+import static io.monkeypatch.untangled.FiberDemoServer.closeUnconditionally;
+import static io.monkeypatch.untangled.FiberDemoServer.threadLoopPool;
 import static io.monkeypatch.untangled.utils.IO.DEMO_SERVER_PORT;
 import static io.monkeypatch.untangled.utils.IO.MAX_ETA_MS;
 import static io.monkeypatch.untangled.utils.Log.err;
@@ -31,8 +36,9 @@ import static io.monkeypatch.untangled.utils.Log.println;
 
 /**
  * - Continuations-based TCP server stolen from Rémi Forax (https://github.com/forax/loom-fiber/blob/master/src/main/java/fr.umlv.loom/fr/umlv/loom/Server.java)
- *   just tweaked a bit for routing and delaying responses via the scheduled executor
- * - fiber version and thread-based version for testing purposes
+ * just tweaked a bit for routing and delaying responses via the scheduled executor
+ * - fiber version and thread-based version for experimentation
+ * - reactor-netty version for debugging purposes
  * - TODO: Keep-Alive...
  */
 public class FiberDemoServer {
@@ -48,19 +54,23 @@ public class FiberDemoServer {
         CONTINUATIONS,
         THREADS,
         VIRTUAL_THREADS,
+        NETTY,
     }
 
     public interface IO {
         int read(ByteBuffer buffer) throws IOException;
+
         int write(ByteBuffer buffer) throws IOException;
+
         void done() throws IOException;
 
         default String readLine(ByteBuffer buffer) throws IOException {
             int read;
-            loop: while((read = read(buffer)) != -1) {
+            loop:
+            while ((read = read(buffer)) != -1) {
                 buffer.flip();
-                while(buffer.hasRemaining()) {
-                    if(buffer.get() == '\n') {
+                while (buffer.hasRemaining()) {
+                    if (buffer.get() == '\n') {
                         break loop;
                     }
                 }
@@ -105,7 +115,7 @@ public class FiberDemoServer {
 
         AtomicInteger reqs = new AtomicInteger();
         IOConsumer consumer = (scope, channel, buffer, io) -> {
-            try(channel) {
+            try (channel) {
                 String line = io.readLine(buffer);
 //            println("request " + line);
                 if (line == null) {
@@ -156,7 +166,9 @@ public class FiberDemoServer {
                                                 case VIRTUAL_THREADS:
                                                     try {
                                                         Thread.sleep(delay);
-                                                    } catch (InterruptedException e) { e.printStackTrace(); }
+                                                    } catch (InterruptedException e) {
+                                                        e.printStackTrace();
+                                                    }
                                             }
                                         }
                                         do {
@@ -168,13 +180,12 @@ public class FiberDemoServer {
                         }
                         break;
                 }
-            }
-            catch (Exception e) {
+            } catch (Exception e) {
                 e.printStackTrace();
             }
         };
 
-        switch (ServerMode.THREADS) { // Play here
+        switch (ServerMode.VIRTUAL_THREADS) { // Play here
             case CONTINUATIONS:
                 mode.set(ServerMode.CONTINUATIONS);
                 ContinuationsLoop.start(consumer, DEMO_SERVER_PORT);
@@ -187,6 +198,73 @@ public class FiberDemoServer {
                 mode.set(ServerMode.VIRTUAL_THREADS);
                 VirtualThreadsLoop.start(consumer, DEMO_SERVER_PORT);
                 break;
+            case NETTY:
+                // For debugging purposes (a REAL http server implementation is handy)
+                HttpServer httpServer = HttpServer.create()
+                    .port(DEMO_SERVER_PORT)
+                    .route(routes ->
+                        routes.get("/token",
+                                (request, response) -> {
+                                    switch (request.uri()) {
+                                        case "/token?value=nothing":
+                                            return response.sendString(replyWithUnavailableToken(1));
+                                        case "/token?value=1":
+                                            return response.sendString(replyWithUnavailableToken(2));
+                                        case "/token?value=2":
+                                            return response.sendString(replyWithUnavailableToken(3));
+                                        case "/token?value=3":
+                                            return response.sendString(replyWithUnavailableToken(4));
+                                        case "/token?value=4":
+                                            return response.sendString(replyWithAvailableToken(5));
+                                    }
+                                    return response.sendNotFound();
+                                })
+                            .get("/heartbeat", (request, response) -> {
+                                if (request.uri().equals("/heartbeat?token=5")) {
+                                    return response.sendString(replyWithAvailableToken(5));
+                                }
+                                return response.sendNotFound();
+                            })
+                            .get("/download", (request, response) -> {
+                                if (request.uri().equals("/download")) {
+                                    //noinspection resource
+                                    var is = new RandomGeneratedInputStream(MAX_SIZE);
+                                    return response.sendByteArray(
+                                        Flux.range(0, Integer.MAX_VALUE)
+                                            .flatMap(i -> {
+                                                try {
+                                                    byte[] buff = new byte[8192];
+                                                    //noinspection BlockingMethodInNonBlockingContext
+                                                    if (is.read(buff) > 0) {
+                                                        byte[] bytes = new byte[buff.length];
+                                                        System.arraycopy(buff, 0, bytes, 0, bytes.length);
+                                                        var m = Mono.just(bytes);
+                                                        if (i % 10 == 0) {
+                                                            var delay = random.nextInt(500);
+                                                            return m.delaySubscription(Duration.ofMillis(delay));
+                                                        }
+                                                        return m;
+                                                    } else {
+                                                        return Mono.just(new byte[0]);
+                                                    }
+                                                } catch (IOException e) {
+                                                    return Mono.error(e);
+                                                }
+                                            })
+                                            .takeWhile(buf -> buf.length > 0)
+                                    );
+                                }
+                                return response.sendNotFound();
+                            })
+                    );
+
+                httpServer.warmup()
+                    .block();
+
+                httpServer.bindNow()
+                    .onDispose()
+                    .block();
+                break;
         }
     }
 
@@ -198,8 +276,20 @@ public class FiberDemoServer {
                 token));
     }
 
+    private static Mono<String> replyWithUnavailableToken(int token) {
+        return Mono.just(String.format("Unavailable(eta=%s,wait=%s,token=%s)",
+            random.nextInt((int) MAX_ETA_MS),
+            random.nextInt(2_000),
+            token)
+        );
+    }
+
     private static void replyWithAvailableToken(ContinuationScope scope, IO io, int token) throws IOException {
         replyWithDelay(scope, io, String.format("Available(token=%s)", token));
+    }
+
+    private static Mono<String> replyWithAvailableToken(int token) {
+        return Mono.just(String.format("Available(token=%s)", token));
     }
 
     private static void replyWithDelay(ContinuationScope scope, IO io, String value) throws IOException {
@@ -214,19 +304,14 @@ public class FiberDemoServer {
             case VIRTUAL_THREADS:
                 try {
                     Thread.sleep(delay);
-                } catch (InterruptedException e) { e.printStackTrace(); }
+                } catch (InterruptedException e) {
+                    e.printStackTrace();
+                }
                 break;
         }
 
-//        println("send header Content-Length:" + value.length());
-//        io.write("HTTP/1.0 200 OK\n");
-//        io.write("Content-Length:" + value.length() + "\n\n");
-//        io.write("HTTP/1.0 200 Content-Length:" + value.length() +"\r\n\r\n");
-//        println("send value: " + value);
-//        io.write(value);
         var data = (value + "\r\n").getBytes();
         io.write("HTTP/1.1 200 OK\r\n");
-        println("data length: " + data.length);
         io.write("Content-Length:" + data.length + "\r\n");
         io.write("Connection: close\r\n\r\n");
         io.write(ByteBuffer.wrap(data));
@@ -257,6 +342,9 @@ class ContinuationsLoop {
                 }
                 SelectionKey key;
                 try {
+                    channel.setOption(StandardSocketOptions.TCP_NODELAY, true);
+                    channel.setOption(StandardSocketOptions.SO_SNDBUF, 65536);
+                    channel.setOption(StandardSocketOptions.SO_RCVBUF, 65536);
                     channel.configureBlocking(false);
 //                    println("register selector");
                     key = channel.register(selector, 0);
@@ -340,27 +428,32 @@ class VirtualThreadsLoop {
         var i = new AtomicInteger(0);
         for (; ; ) {
             selector.select(key -> Thread.ofVirtual().name("acceptor-" + i.get()).start(() -> {
-                try(SocketChannel channel = server.accept()) {
+                try (SocketChannel channel = server.accept()) {
+                    if (channel != null) {
+                        channel.setOption(StandardSocketOptions.TCP_NODELAY, true);
+                        channel.setOption(StandardSocketOptions.SO_SNDBUF, 65536);
+                        channel.setOption(StandardSocketOptions.SO_RCVBUF, 65536);
 //                    channel.configureBlocking(false);
-                    var buffer = ByteBuffer.allocateDirect(8192);
-                    var io = new FiberDemoServer.IO() {
-                        @Override
-                        public int read(ByteBuffer buffer) throws IOException {
-                            return channel.read(buffer);
-                        }
+                        var buffer = ByteBuffer.allocateDirect(8192);
+                        var io = new FiberDemoServer.IO() {
+                            @Override
+                            public int read(ByteBuffer buffer) throws IOException {
+                                return channel.read(buffer);
+                            }
 
-                        @Override
-                        public int write(ByteBuffer buffer) throws IOException {
-                            return channel.write(buffer);
-                        }
+                            @Override
+                            public int write(ByteBuffer buffer) throws IOException {
+                                return channel.write(buffer);
+                            }
 
-                        @Override
-                        public void done() throws IOException {
-                            channel.shutdownOutput();
-                            channel.close();
-                        }
-                    };
-                    consumer.accept(SCOPE, channel, buffer, io);
+                            @Override
+                            public void done() throws IOException {
+                                channel.shutdownOutput();
+                                channel.close();
+                            }
+                        };
+                        consumer.accept(SCOPE, channel, buffer, io);
+                    }
                 } catch (IOException e) {
                     err(e.getMessage());
                     closeUnconditionally(server);
@@ -383,7 +476,7 @@ class ThreadsLoop {
             channel.setOption(StandardSocketOptions.SO_SNDBUF, 65536);
             channel.setOption(StandardSocketOptions.SO_RCVBUF, 65536);
             threadLoopPool.submit(() -> {
-                try(channel) {
+                try (channel) {
                     var buffer = ByteBuffer.allocateDirect(8192);
                     var io = new FiberDemoServer.IO() {
                         @Override
